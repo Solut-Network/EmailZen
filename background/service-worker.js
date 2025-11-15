@@ -511,9 +511,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         total: resultado.total
       });
     }).catch(error => {
-      sendResponse({ sucesso: false, erro: error.message });
+      console.error('[EmailZen] Erro ao executar regra:', error);
+      sendResponse({ sucesso: false, erro: error.message || 'Erro desconhecido' });
     });
-    return true;
+    return true; // Indica resposta assíncrona
   }
 });
 

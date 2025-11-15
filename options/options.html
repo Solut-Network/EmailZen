@@ -31,8 +31,47 @@
           </div>
         </div>
         
-        <div id="regras-lista" class="regras-lista">
-          <div class="loading">Carregando regras...</div>
+        <div class="regras-filtros">
+          <div class="search-container">
+            <input 
+              type="text" 
+              id="regras-search" 
+              class="regras-search" 
+              placeholder="🔍 Pesquisar regras por nome, remetente ou label..."
+              autocomplete="off"
+            />
+          </div>
+          <div id="regras-selecao" class="regras-selecao hidden">
+            <div class="selecao-info">
+              <span id="selecao-contador">0</span> regra(s) selecionada(s)
+            </div>
+            <div class="selecao-acoes">
+              <button id="btn-selecionar-todas" class="btn-link">Selecionar todas</button>
+              <button id="btn-deselecionar-todas" class="btn-link">Limpar seleção</button>
+              <button id="btn-executar-selecionadas" class="btn-secondary btn-sm">
+                ▶️ Executar
+              </button>
+              <button id="btn-desativar-selecionadas" class="btn-secondary btn-sm">
+                ⏸️ Desativar
+              </button>
+              <button id="btn-excluir-selecionadas" class="btn-danger btn-sm">
+                🗑️ Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+        
+        <div id="regras-lista-container">
+          <div class="regras-lista-header">
+            <div></div>
+            <div>Nome</div>
+            <div>Condições</div>
+            <div>Ações</div>
+            <div style="text-align: right;">Ações</div>
+          </div>
+          <div id="regras-lista" class="regras-lista">
+            <div class="loading">Carregando regras...</div>
+          </div>
         </div>
       </div>
       

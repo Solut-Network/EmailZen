@@ -5,6 +5,8 @@
 import { obterRegras, salvarRegra, removerRegra, toggleRegra, obterEstatisticas } from '../utils/storage.js';
 
 let regraEditando = null;
+let regrasSelecionadas = new Set();
+let todasRegras = [];
 
 /**
  * Inicializa a página
@@ -42,23 +44,63 @@ async function inicializar() {
     e.preventDefault();
     await salvarRegraForm();
   });
+  
+  // Event listeners para pesquisa e seleção
+  document.getElementById('regras-search')?.addEventListener('input', (e) => {
+    regrasSelecionadas.clear();
+    atualizarSelecao();
+    carregarRegras(e.target.value);
+  });
+  
+  document.getElementById('btn-selecionar-todas')?.addEventListener('click', () => {
+    selecionarTodasRegras();
+  });
+  
+  document.getElementById('btn-deselecionar-todas')?.addEventListener('click', () => {
+    deselecionarTodasRegras();
+  });
+  
+  document.getElementById('btn-executar-selecionadas')?.addEventListener('click', () => {
+    executarRegrasSelecionadas();
+  });
+  
+  document.getElementById('btn-desativar-selecionadas')?.addEventListener('click', () => {
+    desativarRegrasSelecionadas();
+  });
+  
+  document.getElementById('btn-excluir-selecionadas')?.addEventListener('click', () => {
+    excluirRegrasSelecionadas();
+  });
 }
 
 /**
  * Carrega e exibe regras
  */
-async function carregarRegras() {
+async function carregarRegras(termoBusca = '') {
   const lista = document.getElementById('regras-lista');
   lista.innerHTML = '<div class="loading">Carregando regras...</div>';
   
   try {
     const regras = await obterRegras();
+    todasRegras = regras; // Salva para filtragem
     
-    if (regras.length === 0) {
+    // Filtra regras se houver termo de busca
+    let regrasFiltradas = regras;
+    if (termoBusca && termoBusca.trim() !== '') {
+      const termo = termoBusca.toLowerCase().trim();
+      regrasFiltradas = regras.filter(regra => {
+        const nome = regra.nome?.toLowerCase() || '';
+        const remetente = regra.condicoes?.remetente?.join(' ')?.toLowerCase() || '';
+        const label = regra.acoes?.label?.toLowerCase() || '';
+        return nome.includes(termo) || remetente.includes(termo) || label.includes(termo);
+      });
+    }
+    
+    if (regrasFiltradas.length === 0) {
       lista.innerHTML = `
-        <div class="vazio">
-          <p>Nenhuma regra configurada ainda.</p>
-          <p style="margin-top: 16px;">Clique em "Nova Regra" para começar.</p>
+        <div class="vazio" style="grid-column: 1 / -1; padding: 40px; text-align: center;">
+          <p>${termoBusca ? 'Nenhuma regra encontrada para a pesquisa.' : 'Nenhuma regra configurada ainda.'}</p>
+          <p style="margin-top: 16px;">${termoBusca ? 'Tente outro termo de busca.' : 'Clique em "Nova Regra" para começar.'}</p>
         </div>
       `;
       return;
@@ -66,7 +108,7 @@ async function carregarRegras() {
     
     lista.innerHTML = '';
     
-    regras.forEach(regra => {
+    regrasFiltradas.forEach(regra => {
       const card = criarCardRegra(regra);
       lista.appendChild(card);
     });
@@ -74,6 +116,9 @@ async function carregarRegras() {
     // Atualiza contador de regras ativas
     const regrasAtivas = regras.filter(r => r.ativa).length;
     document.getElementById('stat-regras').textContent = regrasAtivas;
+    
+    // Atualiza seleção
+    atualizarSelecao();
     
   } catch (error) {
     console.error('Erro ao carregar regras:', error);
@@ -90,8 +135,9 @@ async function carregarRegras() {
  */
 function criarCardRegra(regra) {
   const card = document.createElement('div');
-  card.className = 'regra-card';
+  card.className = 'regra-linha';
   card.setAttribute('data-regra-id', regra.id);
+  const isSelecionada = regrasSelecionadas.has(regra.id);
   
   const condicoes = [];
   if (regra.condicoes?.remetente?.length > 0) {
@@ -116,37 +162,51 @@ function criarCardRegra(regra) {
   }
   
   card.innerHTML = `
-    <div class="regra-card-header">
-      <div>
+    <div class="regra-linha">
+      <div class="regra-linha-checkbox">
+        <input 
+          type="checkbox" 
+          class="regra-checkbox" 
+          data-regra-id="${regra.id}"
+          ${isSelecionada ? 'checked' : ''}
+        >
+      </div>
+      <div class="regra-linha-nome">
         <span class="regra-nome">${regra.nome}</span>
         <span class="regra-status ${regra.ativa ? 'ativa' : 'inativa'}">
           ${regra.ativa ? 'Ativa' : 'Inativa'}
         </span>
         <span class="regra-exec-status hidden" data-status=""></span>
       </div>
-    </div>
-    <div class="regra-detalhes">
-      ${condicoes.length > 0 ? `
-        <div class="regra-detalhe">
-          <strong>Condições:</strong><br>
-          ${condicoes.join('<br>')}
-        </div>
-      ` : ''}
-      ${acoes.length > 0 ? `
-        <div class="regra-detalhe">
-          <strong>Ações:</strong><br>
-          ${acoes.join('<br>')}
-        </div>
-      ` : ''}
-    </div>
-    <div class="regra-acoes">
-      <button class="btn-secondary btn-editar" data-id="${regra.id}">Editar</button>
-      <button class="btn-secondary btn-toggle" data-id="${regra.id}" data-ativa="${regra.ativa}">
-        ${regra.ativa ? 'Desativar' : 'Ativar'}
-      </button>
-      <button class="btn-danger btn-excluir" data-id="${regra.id}">Excluir</button>
+      <div class="regra-linha-condicoes">
+        ${condicoes.length > 0 ? condicoes.join(', ') : '-'}
+      </div>
+      <div class="regra-linha-acoes">
+        ${acoes.length > 0 ? acoes.join(', ') : '-'}
+      </div>
+      <div class="regra-linha-botoes">
+        <button class="btn-secondary btn-sm btn-editar" data-id="${regra.id}" title="Editar">✏️</button>
+        <button class="btn-secondary btn-sm btn-toggle" data-id="${regra.id}" data-ativa="${regra.ativa}" title="${regra.ativa ? 'Desativar' : 'Ativar'}">
+          ${regra.ativa ? '⏸️' : '▶️'}
+        </button>
+        <button class="btn-danger btn-sm btn-excluir" data-id="${regra.id}" title="Excluir">🗑️</button>
+      </div>
     </div>
   `;
+  
+  // Event listener para checkbox
+  const checkbox = card.querySelector('.regra-checkbox');
+  if (checkbox) {
+    checkbox.addEventListener('change', (e) => {
+      const regraId = e.target.getAttribute('data-regra-id');
+      if (e.target.checked) {
+        regrasSelecionadas.add(regraId);
+      } else {
+        regrasSelecionadas.delete(regraId);
+      }
+      atualizarSelecao();
+    });
+  }
   
   // Event listeners
   card.querySelector('.btn-editar').addEventListener('click', () => {
@@ -256,7 +316,9 @@ async function salvarRegraForm() {
   try {
     await salvarRegra(regra);
     fecharModalRegra();
-    await carregarRegras();
+    regrasSelecionadas.clear();
+    await carregarRegras(document.getElementById('regras-search')?.value || '');
+    atualizarSelecao();
     alert('Regra salva com sucesso!');
   } catch (error) {
     console.error('Erro ao salvar regra:', error);
@@ -351,14 +413,38 @@ async function executarRegras() {
         }
       }
       
-      // Executa a regra
-      const response = await chrome.runtime.sendMessage({
-        acao: 'executarRegra',
-        regraId: regra.id
-      });
+      // Executa a regra com timeout
+      let response;
+      try {
+        // Cria uma promise com timeout
+        const messagePromise = chrome.runtime.sendMessage({
+          acao: 'executarRegra',
+          regraId: regra.id
+        });
+        
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout: Service worker não respondeu')), 30000)
+        );
+        
+        response = await Promise.race([messagePromise, timeoutPromise]);
+        
+        // Verifica se a resposta foi recebida
+        if (!response) {
+          throw new Error('Nenhuma resposta do service worker');
+        }
+      } catch (error) {
+        console.error(`Erro ao executar regra ${regra.id}:`, error);
+        if (card && statusEl) {
+          statusEl.classList.remove('executando');
+          statusEl.classList.add('erro');
+          statusEl.setAttribute('data-status', 'erro');
+          statusEl.innerHTML = `❌ Erro: ${error.message || 'Erro desconhecido'}`;
+        }
+        continue; // Pula para próxima regra
+      }
       
       if (card && statusEl) {
-        if (response.sucesso) {
+        if (response && response.sucesso) {
           statusEl.classList.remove('executando');
           statusEl.classList.add('concluida');
           statusEl.setAttribute('data-status', 'concluida');
@@ -367,7 +453,7 @@ async function executarRegras() {
           statusEl.classList.remove('executando');
           statusEl.classList.add('erro');
           statusEl.setAttribute('data-status', 'erro');
-          statusEl.innerHTML = `❌ Erro: ${response.erro || 'Erro desconhecido'}`;
+          statusEl.innerHTML = `❌ Erro: ${response?.erro || 'Erro desconhecido'}`;
         }
       }
       
@@ -389,6 +475,148 @@ async function executarRegras() {
     btnExecutar.disabled = false;
     btnExecutar.innerHTML = '<span class="btn-icon">▶️</span> Executar Regras';
   }
+}
+
+/**
+ * Atualiza interface de seleção
+ */
+function atualizarSelecao() {
+  const selecaoDiv = document.getElementById('regras-selecao');
+  const contador = document.getElementById('selecao-contador');
+  
+  if (regrasSelecionadas.size > 0) {
+    selecaoDiv?.classList.remove('hidden');
+    contador.textContent = regrasSelecionadas.size;
+  } else {
+    selecaoDiv?.classList.add('hidden');
+  }
+}
+
+/**
+ * Seleciona todas as regras visíveis
+ */
+function selecionarTodasRegras() {
+  document.querySelectorAll('.regra-checkbox').forEach(checkbox => {
+    const regraId = checkbox.getAttribute('data-regra-id');
+    checkbox.checked = true;
+    regrasSelecionadas.add(regraId);
+  });
+  atualizarSelecao();
+}
+
+/**
+ * Deseleciona todas as regras
+ */
+function deselecionarTodasRegras() {
+  document.querySelectorAll('.regra-checkbox').forEach(checkbox => {
+    checkbox.checked = false;
+  });
+  regrasSelecionadas.clear();
+  atualizarSelecao();
+}
+
+/**
+ * Executa regras selecionadas
+ */
+async function executarRegrasSelecionadas() {
+  if (regrasSelecionadas.size === 0) {
+    alert('Nenhuma regra selecionada.');
+    return;
+  }
+  
+  const regrasIds = Array.from(regrasSelecionadas);
+  const regras = todasRegras.filter(r => regrasIds.includes(r.id) && r.ativa);
+  
+  if (regras.length === 0) {
+    alert('Nenhuma regra ativa selecionada.');
+    return;
+  }
+  
+  // Executa cada regra selecionada
+  for (const regra of regras) {
+    const card = document.querySelector(`[data-regra-id="${regra.id}"]`);
+    let statusEl = card?.querySelector('.regra-exec-status');
+    
+    if (statusEl) {
+      statusEl.classList.remove('hidden');
+      statusEl.classList.add('executando');
+      statusEl.innerHTML = '⏳ Executando...';
+    }
+    
+    try {
+      const response = await chrome.runtime.sendMessage({
+        acao: 'executarRegra',
+        regraId: regra.id
+      });
+      
+      if (statusEl) {
+        if (response && response.sucesso) {
+          statusEl.classList.remove('executando');
+          statusEl.classList.add('concluida');
+          statusEl.innerHTML = `✅ Concluída (${response.processados || 0} emails)`;
+        } else {
+          statusEl.classList.remove('executando');
+          statusEl.classList.add('erro');
+          statusEl.innerHTML = `❌ Erro: ${response?.erro || 'Erro desconhecido'}`;
+        }
+      }
+    } catch (error) {
+      if (statusEl) {
+        statusEl.classList.remove('executando');
+        statusEl.classList.add('erro');
+        statusEl.innerHTML = `❌ Erro: ${error.message}`;
+      }
+    }
+    
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
+  
+  await carregarEstatisticas();
+  alert(`Execução concluída! ${regras.length} regra(s) processada(s).`);
+}
+
+/**
+ * Desativa regras selecionadas
+ */
+async function desativarRegrasSelecionadas() {
+  if (regrasSelecionadas.size === 0) {
+    alert('Nenhuma regra selecionada.');
+    return;
+  }
+  
+  if (!confirm(`Deseja desativar ${regrasSelecionadas.size} regra(s)?`)) {
+    return;
+  }
+  
+  for (const regraId of regrasSelecionadas) {
+    await toggleRegra(regraId, false);
+  }
+  
+  regrasSelecionadas.clear();
+  await carregarRegras(document.getElementById('regras-search')?.value || '');
+  atualizarSelecao();
+}
+
+/**
+ * Exclui regras selecionadas
+ */
+async function excluirRegrasSelecionadas() {
+  if (regrasSelecionadas.size === 0) {
+    alert('Nenhuma regra selecionada.');
+    return;
+  }
+  
+  if (!confirm(`Deseja excluir ${regrasSelecionadas.size} regra(s)? Esta ação não pode ser desfeita.`)) {
+    return;
+  }
+  
+  for (const regraId of regrasSelecionadas) {
+    await removerRegra(regraId);
+  }
+  
+  regrasSelecionadas.clear();
+  await carregarRegras(document.getElementById('regras-search')?.value || '');
+  atualizarSelecao();
 }
 
 // Inicializa quando página carrega
