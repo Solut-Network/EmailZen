@@ -1,4 +1,4 @@
-# 📧 Gmail Inbox Zero Organizer
+# 📧 EmailZen
 
 Extensão completa para Google Chrome que organiza emails do Gmail automaticamente usando filtros inteligentes e exclusão automática.
 
@@ -60,7 +60,7 @@ Extensão completa para Google Chrome que organiza emails do Gmail automaticamen
 1. Vá em "APIs e Serviços" > "Tela de consentimento OAuth"
 2. Escolha "Externo" (ou "Interno" se usar Google Workspace)
 3. Preencha as informações obrigatórias:
-   - Nome do aplicativo: `Gmail Inbox Zero Organizer`
+   - Nome do aplicativo: `EmailZen`
    - Email de suporte
    - Logo (opcional)
 4. Adicione os escopos:
@@ -76,7 +76,7 @@ Extensão completa para Google Chrome que organiza emails do Gmail automaticamen
 2. Clique em "Criar credenciais" > "ID do cliente OAuth"
 3. Escolha "Aplicativo Chrome"
 4. Preencha:
-   - Nome: `Gmail Organizer Extension`
+   - Nome: `EmailZen Extension`
    - ID do aplicativo: deixe vazio (será gerado automaticamente)
 5. Clique em "Criar"
 6. **Copie o Client ID** gerado

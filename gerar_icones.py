@@ -1,5 +1,5 @@
 """
-Script para gerar ícones da extensão Gmail Organizer
+Script para gerar ícones da extensão EmailZen
 Execute: python gerar_icones.py
 """
 

@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Gmail Inbox Zero Organizer",
+  "name": "EmailZen",
   "version": "1.0.0",
   "description": "Organize seus emails do Gmail automaticamente com filtros inteligentes e exclusão automática",
   "permissions": [

@@ -146,13 +146,13 @@ async function processarMensagem(messageId, regras) {
  */
 async function processarEmails() {
   try {
-    console.log('[Gmail Organizer] Iniciando processamento de emails...');
+    console.log('[EmailZen] Iniciando processamento de emails...');
     
     const regras = await obterRegras();
     const regrasAtivas = regras.filter(r => r.ativa);
     
     if (regrasAtivas.length === 0) {
-      console.log('[Gmail Organizer] Nenhuma regra ativa encontrada');
+      console.log('[EmailZen] Nenhuma regra ativa encontrada');
       return;
     }
     
@@ -165,12 +165,12 @@ async function processarEmails() {
     });
     
     if (!resultado.messages || resultado.messages.length === 0) {
-      console.log('[Gmail Organizer] Nenhuma mensagem nova para processar');
+      console.log('[EmailZen] Nenhuma mensagem nova para processar');
       return;
     }
     
     const messageIds = resultado.messages.map(m => m.id);
-    console.log(`[Gmail Organizer] Processando ${messageIds.length} mensagens...`);
+    console.log(`[EmailZen] Processando ${messageIds.length} mensagens...`);
     
     // Processa em batches
     const resultados = await processarMensagensBatch(
@@ -180,7 +180,7 @@ async function processarEmails() {
     );
     
     const processados = resultados.filter(r => r.processado).length;
-    console.log(`[Gmail Organizer] ${processados} mensagens processadas`);
+    console.log(`[EmailZen] ${processados} mensagens processadas`);
     
     // Atualiza estatísticas
     const { emailsProcessados = 0 } = await chrome.storage.local.get(['estatisticas']);
@@ -189,7 +189,7 @@ async function processarEmails() {
     });
     
   } catch (error) {
-    console.error('[Gmail Organizer] Erro no processamento:', error);
+    console.error('[EmailZen] Erro no processamento:', error);
   }
 }
 
@@ -198,7 +198,7 @@ async function processarEmails() {
  */
 async function verificarExclusoes() {
   try {
-    console.log('[Gmail Organizer] Verificando emails para exclusão...');
+    console.log('[EmailZen] Verificando emails para exclusão...');
     
     const regras = await obterRegras();
     const regrasComRetencao = regras.filter(r => 
@@ -255,7 +255,7 @@ async function verificarExclusoes() {
     }
     
     if (emailsExcluidos > 0) {
-      console.log(`[Gmail Organizer] ${emailsExcluidos} emails excluídos`);
+      console.log(`[EmailZen] ${emailsExcluidos} emails excluídos`);
       
       const { emailsExcluidos: total = 0 } = await chrome.storage.local.get(['estatisticas']);
       await salvarEstatisticas({
@@ -264,7 +264,7 @@ async function verificarExclusoes() {
     }
     
   } catch (error) {
-    console.error('[Gmail Organizer] Erro na verificação de exclusões:', error);
+    console.error('[EmailZen] Erro na verificação de exclusões:', error);
   }
 }
 
@@ -350,7 +350,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
  * Inicialização quando extensão é instalada
  */
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('[Gmail Organizer] Extensão instalada');
+  console.log('[EmailZen] Extensão instalada');
   
   // Cria alarmes periódicos
   // Processa emails a cada 30 minutos
@@ -373,7 +373,7 @@ chrome.runtime.onInstalled.addListener(() => {
  * Processa emails quando extensão é iniciada
  */
 chrome.runtime.onStartup.addListener(() => {
-  console.log('[Gmail Organizer] Extensão iniciada');
+  console.log('[EmailZen] Extensão iniciada');
   processarEmails();
 });
 
