@@ -3,6 +3,31 @@
  */
 
 /**
+ * Cache de remetentes processados (otimização)
+ */
+export async function salvarRemetenteProcessado(remetente, regraId, totalProcessado) {
+  const { remetentesProcessados = {} } = await chrome.storage.local.get(['remetentesProcessados']);
+  
+  remetentesProcessados[remetente] = {
+    regraId,
+    ultimoProcessamento: Date.now(),
+    totalProcessado,
+    jaProcessado: true
+  };
+  
+  await chrome.storage.local.set({ remetentesProcessados });
+}
+
+export async function obterRemetenteProcessado(remetente) {
+  const { remetentesProcessados = {} } = await chrome.storage.local.get(['remetentesProcessados']);
+  return remetentesProcessados[remetente] || null;
+}
+
+export async function limparCacheRemetentes() {
+  await chrome.storage.local.set({ remetentesProcessados: {} });
+}
+
+/**
  * Salva uma regra de filtro
  * @param {Object} regra - Objeto com nome, condições e ações
  * @returns {Promise<string>} ID da regra criada

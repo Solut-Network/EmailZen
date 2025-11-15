@@ -3,7 +3,7 @@
  * Processa emails automaticamente e gerencia exclusões
  */
 
-import { obterRegras, salvarEstatisticas, adicionarHistorico, salvarRegra, obterConfigVerificacao, salvarSugestoes } from '../utils/storage.js';
+import { obterRegras, salvarEstatisticas, adicionarHistorico, salvarRegra, obterConfigVerificacao, salvarSugestoes, salvarRemetenteProcessado, obterRemetenteProcessado } from '../utils/storage.js';
 import { 
   buscarMensagens, 
   obterMensagem, 
@@ -13,7 +13,9 @@ import {
   criarLabel,
   mensagemCorrespondeRegra,
   processarMensagensBatch,
-  analisarRemetentesFrequentes
+  analisarRemetentesFrequentes,
+  extrairDominio,
+  extrairEmailRemetente
 } from '../utils/gmail-api.js';
 import { obterLabelsCache, salvarLabelsCache } from '../utils/storage.js';
 
@@ -668,6 +670,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.acao === 'analisarSugestoes') {
+    // Responde imediatamente para evitar timeout
+    // A análise continua em background e envia progresso via mensagens
+    sendResponse({ sucesso: true, emAndamento: true });
+    
     // Analisa em background - não depende do popup estar aberto
     (async () => {
       let analiseAbortada = false;
@@ -682,17 +688,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       };
       chrome.runtime.onMessage.addListener(abortListener);
       
+      // Variável para garantir que o progresso só aumente
+      let ultimoProgressoEnviado = 0;
+      
       // Callback de progresso
       const callbackProgresso = (processados, total, etapa) => {
         if (analiseAbortada) {
           return true; // Indica abortar
         }
         
+        // Garante que o progresso só aumente (evita regressão visual)
+        const progressoAtual = Math.max(processados, ultimoProgressoEnviado);
+        ultimoProgressoEnviado = progressoAtual;
+        
         // Envia progresso para options page se estiver aberta
         try {
           chrome.runtime.sendMessage({
             acao: 'analiseProgresso',
-            processados,
+            processados: progressoAtual,
             total,
             etapa
           }).catch(() => {
@@ -705,42 +718,145 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         return analiseAbortada;
       };
       
-      try {
-        // Modifica analisarSugestoes para aceitar callback
-        const sugestoes = await analisarSugestoesComProgresso(callbackProgresso);
-        
-        chrome.runtime.onMessage.removeListener(abortListener);
+      // Retry automático com até 3 tentativas
+      const maxTentativas = 3;
+      let tentativaAtual = 0;
+      let sugestoes = null;
+      let ultimoErro = null;
+      
+      while (tentativaAtual < maxTentativas) {
+        tentativaAtual++;
         
         try {
-          sendResponse({ sucesso: true, sugestoes });
+          // Envia progresso sobre tentativa
+          if (tentativaAtual > 1) {
+            try {
+              chrome.runtime.sendMessage({
+                acao: 'analiseProgresso',
+                processados: 0,
+                total: 0,
+                etapa: `Tentativa ${tentativaAtual}/${maxTentativas}...`
+              }).catch(() => {});
+            } catch (e) {}
+            
+            // Aguarda um pouco antes de tentar novamente (backoff exponencial)
+            const delay = Math.min(1000 * Math.pow(2, tentativaAtual - 2), 5000);
+            console.log(`[EmailZen] Aguardando ${delay}ms antes da tentativa ${tentativaAtual}...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          
+          // Verifica se foi abortada antes de tentar novamente
+          if (analiseAbortada) {
+            throw new Error('Análise abortada pelo usuário');
+          }
+          
+          console.log(`[EmailZen] Iniciando tentativa ${tentativaAtual}/${maxTentativas} da análise...`);
+          
+          // Modifica analisarSugestoes para aceitar callback
+          sugestoes = await analisarSugestoesComProgresso(callbackProgresso);
+          
+          // Se chegou aqui, análise foi bem-sucedida
+          console.log(`[EmailZen] Análise concluída com sucesso na tentativa ${tentativaAtual}`);
+          break;
+          
+        } catch (error) {
+          ultimoErro = error;
+          
+          // Se foi abortada, não tenta novamente
+          if (error.message && error.message.includes('abortada')) {
+            console.log('[EmailZen] Análise abortada pelo usuário');
+            chrome.runtime.onMessage.removeListener(abortListener);
+            
+            try {
+              chrome.runtime.sendMessage({
+                acao: 'analiseConcluida',
+                sucesso: false,
+                abortada: true,
+                sugestoes: []
+              }).catch(() => {
+                console.log('[EmailZen] Análise abortada (options page pode ter fechado)');
+              });
+            } catch (sendError) {
+              console.log('[EmailZen] Análise abortada');
+            }
+            return;
+          }
+          
+          // Verifica se é um erro que deve ser retentado
+          const deveRetentar = error.message && (
+            error.message.includes('Timeout') ||
+            error.message.includes('timeout') ||
+            error.message.includes('429') ||
+            error.message.includes('rate limit') ||
+            error.message.includes('network') ||
+            error.message.includes('ECONNRESET') ||
+            error.message.includes('ETIMEDOUT') ||
+            error.message.includes('Failed to fetch')
+          );
+          
+          console.error(`[EmailZen] Erro na tentativa ${tentativaAtual}/${maxTentativas}:`, error.message);
+          
+          if (!deveRetentar) {
+            // Erro não é transitório, não tenta novamente
+            console.error('[EmailZen] Erro permanente, não será retentado:', error.message);
+            break;
+          }
+          
+          // Se é a última tentativa, não tenta novamente
+          if (tentativaAtual >= maxTentativas) {
+            console.error(`[EmailZen] Esgotadas ${maxTentativas} tentativas, falhando análise`);
+            break;
+          }
+          
+          console.log(`[EmailZen] Erro transitório detectado, tentando novamente... (${tentativaAtual}/${maxTentativas})`);
+        }
+      }
+      
+      chrome.runtime.onMessage.removeListener(abortListener);
+      
+      // Se conseguiu sugestões, envia resultado final
+      if (sugestoes) {
+        try {
+          chrome.runtime.sendMessage({
+            acao: 'analiseConcluida',
+            sucesso: true,
+            sugestoes,
+            tentativas: tentativaAtual
+          }).catch(() => {
+            // Options page pode não estar aberta, salva resultados
+            console.log('[EmailZen] Análise concluída (options page pode ter fechado)');
+            salvarSugestoes(sugestoes);
+          });
         } catch (sendError) {
-          // Popup pode ter fechado, mas análise continua e salva resultados
-          console.log('[EmailZen] Análise concluída (popup pode ter fechado)');
-          // Salva sugestões mesmo se popup fechou (já importado no topo)
+          // Salva sugestões mesmo se não conseguir enviar mensagem
+          console.log('[EmailZen] Análise concluída, salvando resultados...');
           await salvarSugestoes(sugestoes);
         }
-      } catch (error) {
-        chrome.runtime.onMessage.removeListener(abortListener);
+      } else {
+        // Falhou após todas as tentativas
+        const mensagemErro = ultimoErro 
+          ? `Erro após ${tentativaAtual} tentativa(s): ${ultimoErro.message}`
+          : `Erro desconhecido após ${tentativaAtual} tentativa(s)`;
         
-        if (error.message && error.message.includes('abortada')) {
-          try {
-            sendResponse({ sucesso: false, abortada: true, sugestoes: [] });
-          } catch (sendError) {
-            console.log('[EmailZen] Análise abortada (popup pode ter fechado)');
-          }
-          return;
-        }
+        console.error('[EmailZen] Análise falhou:', mensagemErro);
         
-        console.error('[EmailZen] Erro na análise:', error);
         try {
-          sendResponse({ sucesso: false, erro: error.message, sugestoes: [] });
+          chrome.runtime.sendMessage({
+            acao: 'analiseConcluida',
+            sucesso: false,
+            erro: mensagemErro,
+            tentativas: tentativaAtual,
+            sugestoes: []
+          }).catch(() => {
+            console.error('[EmailZen] Erro na análise (options page pode ter fechado):', mensagemErro);
+          });
         } catch (sendError) {
-          // Popup pode ter fechado, mas erro foi logado
-          console.error('[EmailZen] Erro na análise (popup pode ter fechado):', error);
+          // Erro foi logado
+          console.error('[EmailZen] Erro na análise:', mensagemErro);
         }
       }
     })();
-    return true;
+    return false; // Resposta já foi enviada
   }
   
   if (request.acao === 'criarRegraAutomatica') {

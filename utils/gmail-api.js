@@ -528,7 +528,7 @@ function extrairEmailRemetente(from) {
 }
 
 /**
- * Analisa remetentes frequentes na inbox
+ * Analisa remetentes frequentes na inbox (otimizado: apenas não lidas)
  * @param {number} limiteMinimo - Número mínimo de emails para considerar (padrão: 2)
  * @param {number} maxResultados - Máximo de resultados (padrão: 10)
  * @param {Function} callbackProgresso - Callback para atualizar progresso (processados, total, etapa)
@@ -536,28 +536,28 @@ function extrairEmailRemetente(from) {
  */
 export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultados = 20, callbackProgresso = null) {
   try {
-    console.log('[EmailZen] Iniciando análise de remetentes frequentes...');
+    console.log('[EmailZen] Iniciando análise otimizada de remetentes frequentes (apenas não lidas)...');
     console.log(`[EmailZen] Parâmetros: limiteMinimo=${limiteMinimo}, maxResultados=${maxResultados}`);
     
-    // Busca TODOS os emails da inbox (aumentado para 5000 para análise mais completa)
-    // Usa maxResults maior para reduzir número de requisições
+    // OTIMIZAÇÃO: Busca TODAS as mensagens NÃO LIDAS na inbox
+    // Isso identifica remetentes que realmente precisam de organização
     let resultado = await buscarMensagens({
-      query: 'in:inbox',
+      query: 'in:inbox is:unread',
       maxResults: 500
     });
     
-    // Se há mais páginas, busca mais emails até 5000
+    // Busca TODAS as não lidas (sem limite artificial - processa todas que existem)
     let totalEmails = resultado.messages ? resultado.messages.length : 0;
-    const limiteMaximo = 5000; // Aumentado de 1000 para 5000
     let tentativas = 0;
     const maxTentativas = 20; // Limite de segurança para evitar loop infinito
     
-    while (resultado.nextPageToken && totalEmails < limiteMaximo && tentativas < maxTentativas) {
+    // Busca todas as páginas de não lidas
+    while (resultado.nextPageToken && tentativas < maxTentativas) {
       tentativas++;
-      console.log(`[EmailZen] Buscando página ${tentativas + 1}... (${totalEmails} emails até agora)`);
+      console.log(`[EmailZen] Buscando página ${tentativas + 1} de não lidas... (${totalEmails} emails até agora)`);
       
       const proximaPagina = await buscarMensagens({
-        query: 'in:inbox',
+        query: 'in:inbox is:unread',
         maxResults: 500,
         pageToken: resultado.nextPageToken
       });
@@ -621,16 +621,18 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
             const dominioParaAgrupar = dominioRaiz || dominioCompleto;
             
             if (dominioParaAgrupar && dominioParaAgrupar.length > 0) {
+              // Inicializa ou atualiza contador do domínio
               const atual = remetentesMap.get(dominioParaAgrupar) || {
                 dominio: dominioParaAgrupar,
-                dominioCompleto: dominioCompleto, // Mantém o domínio completo para referência
+                dominioCompleto: dominioCompleto,
                 email: email,
-                count: 0,
+                countNaoLidas: 0, // Contador de não lidas encontradas
+                countTotal: 0, // Será preenchido depois com busca específica
                 ultimoEmail: null,
-                subdominios: new Set() // Rastreia subdomínios encontrados
+                subdominios: new Set()
               };
               
-              atual.count++;
+              atual.countNaoLidas++;
               if (dominioCompleto && dominioCompleto !== dominioRaiz) {
                 atual.subdominios.add(dominioCompleto);
               }
@@ -651,10 +653,9 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
           // Pequeno delay entre cada requisição para evitar rate limit
           await new Promise(resolve => setTimeout(resolve, 200));
           
-          // Atualiza progresso a cada email processado
-          if (callbackProgresso) {
-            const processados = emailsProcessados;
-            const abortar = callbackProgresso(processados, totalEmails, 'Analisando emails...');
+          // Atualiza progresso a cada 10 emails processados (para não sobrecarregar a UI)
+          if (callbackProgresso && emailsProcessados % 10 === 0) {
+            const abortar = callbackProgresso(emailsProcessados, totalEmails, `Analisando emails... ${emailsProcessados}/${totalEmails}`);
             if (abortar) {
               console.log('[EmailZen] Análise abortada pelo usuário');
               throw new Error('Análise abortada pelo usuário');
@@ -682,12 +683,11 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
         }
       }
       
-      // Log de progresso a cada 100 emails processados
-      if ((i + batchSize) % 100 === 0 || (i + batchSize) >= resultado.messages.length) {
-        const processados = Math.min(i + batchSize, resultado.messages.length);
-        console.log(`[EmailZen] Progresso: ${processados}/${resultado.messages.length} emails processados (${emailsComErro} erros)`);
+      // Log de progresso a cada 100 emails processados (usa emailsProcessados real, não índice)
+      if (emailsProcessados % 100 === 0 || emailsProcessados >= totalEmails || (i + batchSize) >= resultado.messages.length) {
+        console.log(`[EmailZen] Progresso: ${emailsProcessados}/${totalEmails} emails processados (${emailsComErro} erros)`);
         if (callbackProgresso) {
-          const abortar = callbackProgresso(processados, totalEmails, `Processando... ${processados}/${totalEmails}`);
+          const abortar = callbackProgresso(emailsProcessados, totalEmails, `Processando... ${emailsProcessados}/${totalEmails}`);
           if (abortar) {
             console.log('[EmailZen] Análise abortada pelo usuário');
             throw new Error('Análise abortada pelo usuário');
@@ -701,30 +701,176 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
       }
     }
     
-    console.log(`[EmailZen] Análise concluída: ${emailsProcessados} processados, ${emailsComErro} erros, ${emailsSemDominio} sem domínio`);
-    console.log(`[EmailZen] Total de domínios únicos encontrados: ${remetentesMap.size}`);
+    console.log(`[EmailZen] ${remetentesMap.size} domínios únicos encontrados nas não lidas`);
     
-    // Converte para array e filtra por limite mínimo
+    // OTIMIZAÇÃO: Verifica regras existentes ANTES de contar mensagens
+    // Se já existe regra para um remetente, não precisa contar (já está organizado)
+    // Isso economiza muitas requisições à API
+    if (callbackProgresso) {
+      callbackProgresso(emailsProcessados, totalEmails, `Verificando regras existentes...`);
+    }
+    
+    // Importa função para verificar regras (será passada como parâmetro ou importada)
+    // Por enquanto, vamos buscar regras diretamente aqui
+    let regrasExistentes = [];
+    try {
+      // Importa dinamicamente para evitar dependência circular
+      const { obterRegras } = await import('../utils/storage.js');
+      regrasExistentes = await obterRegras();
+    } catch (error) {
+      console.warn('[EmailZen] Não foi possível carregar regras existentes:', error);
+    }
+    
+    // Cria mapa de domínios que já têm regras
+    const dominiosComRegra = new Set();
+    regrasExistentes.forEach(regra => {
+      if (regra.ativa && regra.condicoes?.remetente) {
+        regra.condicoes.remetente.forEach(rem => {
+          let dominio = '';
+          if (rem.startsWith('@')) {
+            dominio = rem.substring(1).toLowerCase().trim();
+          } else if (rem.includes('@')) {
+            const partes = rem.split('@');
+            if (partes.length > 1) {
+              dominio = partes[1].toLowerCase().trim();
+            }
+          } else {
+            dominio = rem.toLowerCase().trim();
+          }
+          if (dominio) {
+            dominiosComRegra.add(dominio);
+            // Também adiciona domínio raiz se possível
+            const partes = dominio.split('.');
+            if (partes.length >= 2) {
+              const dominioRaiz = partes.slice(-2).join('.');
+              dominiosComRegra.add(dominioRaiz);
+            }
+          }
+        });
+      }
+    });
+    
+    console.log(`[EmailZen] ${dominiosComRegra.size} domínio(s) já possuem regras ativas`);
+    
+    // OTIMIZAÇÃO: Para cada domínio encontrado, busca o total de mensagens (lidas + não lidas) na inbox
+    // MAS apenas se não tiver regra já existente
+    if (callbackProgresso) {
+      callbackProgresso(emailsProcessados, totalEmails, `Contando mensagens totais por remetente...`);
+    }
+    
+    let dominiosProcessados = 0;
+    let dominiosIgnorados = 0;
+    const dominiosParaContar = Array.from(remetentesMap.keys());
+    
+    for (const dominio of dominiosParaContar) {
+      try {
+        // OTIMIZAÇÃO: Verifica se já existe regra para este domínio
+        const temRegra = dominiosComRegra.has(dominio);
+        
+        // Verifica também se algum subdomínio tem regra
+        let temRegraSubdominio = false;
+        const partes = dominio.split('.');
+        if (partes.length >= 2) {
+          const dominioRaiz = partes.slice(-2).join('.');
+          temRegraSubdominio = dominiosComRegra.has(dominioRaiz);
+        }
+        
+        if (temRegra || temRegraSubdominio) {
+          // Já tem regra, não precisa contar - usa apenas o count de não lidas como estimativa
+          const remetente = remetentesMap.get(dominio);
+          if (remetente) {
+            remetente.countTotal = remetente.countNaoLidas; // Usa apenas não lidas como referência
+            remetente.temRegra = true; // Marca que já tem regra
+          }
+          dominiosIgnorados++;
+          console.log(`[EmailZen] Domínio ${dominio} já tem regra, pulando contagem total`);
+          continue;
+        }
+        
+        const remetente = remetentesMap.get(dominio);
+        
+        // Busca todas as mensagens (lidas + não lidas) deste remetente na inbox
+        // Usa busca por domínio do remetente
+        const buscaResultado = await buscarMensagens({
+          query: `in:inbox from:${dominio}`,
+          maxResults: 500 // Limita a 500 para não demorar muito
+        });
+        
+        // Conta total de mensagens deste remetente
+        let totalMensagens = buscaResultado.messages ? buscaResultado.messages.length : 0;
+        
+        // Se há mais páginas, tenta contar mais (mas limita para não demorar)
+        if (buscaResultado.nextPageToken && totalMensagens < 500) {
+          // Para otimizar, não busca todas as páginas, apenas estima
+          // Se tem mais de 500, já é suficiente para sugerir
+          totalMensagens = Math.max(totalMensagens, 500);
+        }
+        
+        remetente.countTotal = totalMensagens;
+        remetente.temRegra = false;
+        remetentesMap.set(dominio, remetente);
+        
+        dominiosProcessados++;
+        
+        // Atualiza progresso a cada 5 domínios
+        if (callbackProgresso && dominiosProcessados % 5 === 0) {
+          const abortar = callbackProgresso(
+            emailsProcessados, 
+            totalEmails, 
+            `Contando mensagens... ${dominiosProcessados}/${dominiosParaContar.length - dominiosIgnorados} remetentes (${dominiosIgnorados} já têm regras)`
+          );
+          if (abortar) {
+            throw new Error('Análise abortada pelo usuário');
+          }
+        }
+        
+        // Pequeno delay para não sobrecarregar API
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+      } catch (error) {
+        console.error(`[EmailZen] Erro ao contar mensagens do domínio ${dominio}:`, error);
+        // Se der erro, usa apenas o count de não lidas
+        const remetente = remetentesMap.get(dominio);
+        if (remetente) {
+          remetente.countTotal = remetente.countNaoLidas;
+        }
+      }
+    }
+    
+    console.log(`[EmailZen] ${dominiosProcessados} domínios contados, ${dominiosIgnorados} ignorados (já têm regras)`);
+    
+    console.log(`[EmailZen] Análise concluída: ${emailsProcessados} não lidas processadas, ${emailsComErro} erros, ${emailsSemDominio} sem domínio`);
+    
+    // Converte para array e filtra por limite mínimo (usa countTotal que inclui lidas + não lidas)
+    // OTIMIZAÇÃO: Filtra também remetentes que já têm regras (não precisa sugerir novamente)
     const remetentesFrequentes = Array.from(remetentesMap.values())
-      .filter(r => r.count >= limiteMinimo)
-      .sort((a, b) => b.count - a.count)
+      .filter(r => {
+        // Filtra remetentes que já têm regras
+        if (r.temRegra) {
+          return false;
+        }
+        // Filtra pelo total (lidas + não lidas)
+        return r.countTotal >= limiteMinimo;
+      })
+      .sort((a, b) => b.countTotal - a.countTotal) // Ordena pelo total
       .slice(0, maxResultados)
       .map(r => {
-        const total = resultado.messages.length;
-        const porcentagem = ((r.count / total) * 100).toFixed(1);
+        const total = resultado.messages.length; // Total de não lidas analisadas
+        const porcentagem = ((r.countTotal / Math.max(total, 1)) * 100).toFixed(1);
         
         // Informações sobre subdomínios encontrados
         const temSubdominios = r.subdominios && r.subdominios.size > 0;
         const subdominiosLista = temSubdominios ? Array.from(r.subdominios).slice(0, 3) : [];
         
         return {
-          dominio: r.dominio, // Domínio raiz (agrupado)
-          dominioCompleto: r.dominioCompleto, // Primeiro domínio completo encontrado
+          dominio: r.dominio,
+          dominioCompleto: r.dominioCompleto,
           email: r.email,
-          quantidade: r.count,
+          quantidade: r.countTotal, // Total de mensagens (lidas + não lidas)
+          quantidadeNaoLidas: r.countNaoLidas, // Apenas não lidas encontradas
           porcentagem: porcentagem,
           temSubdominios: temSubdominios,
-          subdominios: subdominiosLista, // Lista de subdomínios encontrados (máx 3)
+          subdominios: subdominiosLista,
           exemploSubdominios: temSubdominios ? `Ex: ${subdominiosLista.join(', ')}` : ''
         };
       });
@@ -736,12 +882,13 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
       console.log('[EmailZen] Debug: Nenhum remetente frequente encontrado, mas há emails. Verificando...');
       // Mostra top 10 domínios encontrados para debug
       const todosDominios = Array.from(remetentesMap.entries())
-        .sort((a, b) => b[1].count - a[1].count)
+        .sort((a, b) => (b[1].countTotal || b[1].countNaoLidas) - (a[1].countTotal || a[1].countNaoLidas))
         .slice(0, 10);
       console.log('[EmailZen] Top 10 domínios encontrados:', todosDominios.map(([dom, info]) => ({
         dominio: dom,
-        quantidade: info.count,
-        porcentagem: ((info.count / resultado.messages.length) * 100).toFixed(1) + '%'
+        quantidadeTotal: info.countTotal || info.countNaoLidas,
+        quantidadeNaoLidas: info.countNaoLidas,
+        porcentagem: (((info.countTotal || info.countNaoLidas) / resultado.messages.length) * 100).toFixed(1) + '%'
       })));
       console.log(`[EmailZen] Limite mínimo atual: ${limiteMinimo} emails. Domínios com menos de ${limiteMinimo} emails foram filtrados.`);
     } else {

@@ -442,14 +442,21 @@ async function enviarMensagemComRetry(mensagem, maxTentativas = 2) {
   
   while (tentativas < maxTentativas) {
     try {
-      // Verifica se há erro do Chrome runtime
-      if (chrome.runtime.lastError) {
-        throw new Error(chrome.runtime.lastError.message);
-      }
+      // Cria uma promise para chrome.runtime.sendMessage
+      const messagePromise = new Promise((resolve, reject) => {
+        chrome.runtime.sendMessage(mensagem, (response) => {
+          // Verifica se há erro do Chrome runtime
+          if (chrome.runtime.lastError) {
+            reject(new Error(chrome.runtime.lastError.message));
+            return;
+          }
+          
+          // Resolve com a resposta (pode ser undefined se não houver resposta)
+          resolve(response);
+        });
+      });
       
       // Cria uma promise com timeout maior (processamento pode demorar)
-      const messagePromise = chrome.runtime.sendMessage(mensagem);
-      
       const timeoutPromise = new Promise((_, reject) => 
         setTimeout(() => reject(new Error('Timeout: Service worker não respondeu em 60 segundos. O processamento pode estar demorando muito.')), 60000)
       );
@@ -457,7 +464,7 @@ async function enviarMensagemComRetry(mensagem, maxTentativas = 2) {
       const response = await Promise.race([messagePromise, timeoutPromise]);
       
       // Verifica se a resposta foi recebida
-      if (!response) {
+      if (response === undefined) {
         throw new Error('Nenhuma resposta do service worker');
       }
       
@@ -469,9 +476,10 @@ async function enviarMensagemComRetry(mensagem, maxTentativas = 2) {
       console.error(`[Tentativa ${tentativas}/${maxTentativas}] Erro ao enviar mensagem:`, error);
       
       // Se é erro de runtime do Chrome, tenta aguardar e tentar novamente
-      if (error.message.includes('Extension context invalidated') || 
+      if (error.message && (
+          error.message.includes('Extension context invalidated') || 
           error.message.includes('message port closed') ||
-          error.message.includes('Could not establish connection')) {
+          error.message.includes('Could not establish connection'))) {
         
         // Tenta aguardar um pouco e tentar novamente
         if (tentativas < maxTentativas) {
@@ -926,9 +934,10 @@ async function salvarConfigVerificacaoForm() {
   }
 }
 
-// Variáveis para controle de análise
+  // Variáveis para controle de análise
 let analiseEmAndamento = false;
 let analiseAbortada = false;
+let ultimoProgressoExibido = 0; // Garante que progresso só aumente na UI
 
 /**
  * Inicia análise inteligente de remetentes frequentes
@@ -951,6 +960,7 @@ async function iniciarAnaliseInteligente() {
   // Inicializa estado
   analiseEmAndamento = true;
   analiseAbortada = false;
+  ultimoProgressoExibido = 0; // Reseta contador de progresso
   btnAnalisar.disabled = true;
   btnAnalisar.innerHTML = '<span class="btn-icon">⏳</span> Analisando...';
   btnAbortar.classList.remove('hidden');
@@ -961,6 +971,10 @@ async function iniciarAnaliseInteligente() {
   textoStatus.textContent = 'Iniciando análise...';
   contadorStatus.textContent = '0/0 emails';
   
+  // Declara listeners antes do try para poder removê-los no catch
+  let progressListener = null;
+  let resultadoListener = null;
+  
   try {
     // Verifica se o service worker está ativo
     const swAtivo = await verificarServiceWorker();
@@ -969,7 +983,7 @@ async function iniciarAnaliseInteligente() {
     }
     
     // Cria um listener para atualizar progresso
-    const progressListener = (request, sender, sendResponse) => {
+    progressListener = (request, sender, sendResponse) => {
       if (request.acao === 'analiseProgresso') {
         if (analiseAbortada) {
           // Envia mensagem para abortar
@@ -979,55 +993,126 @@ async function iniciarAnaliseInteligente() {
         }
         
         const { processados, total, etapa } = request;
-        const porcentagem = total > 0 ? Math.round((processados / total) * 100) : 0;
+        
+        // Garante que o progresso só aumente (evita regressão visual)
+        const progressoAtual = Math.max(processados, ultimoProgressoExibido);
+        ultimoProgressoExibido = progressoAtual;
+        
+        const porcentagem = total > 0 ? Math.round((progressoAtual / total) * 100) : 0;
         
         progressoBar.style.width = `${porcentagem}%`;
         textoStatus.textContent = etapa || 'Analisando inbox...';
-        contadorStatus.textContent = `${processados}/${total} emails`;
+        contadorStatus.textContent = `${progressoAtual}/${total} emails`;
         
         sendResponse({ sucesso: true });
         return true;
       }
     };
     
-    // Adiciona listener temporário
+    // Listener para resultado final da análise
+    resultadoListener = (request, sender, sendResponse) => {
+      if (request.acao === 'analiseConcluida') {
+        if (analiseAbortada) {
+          textoStatus.textContent = 'Análise abortada pelo usuário';
+          progressoBar.style.width = '0%';
+          return;
+        }
+        
+        if (request.sucesso && request.sugestoes && request.sugestoes.length > 0) {
+          // Salva sugestões
+          salvarSugestoes(request.sugestoes).then(() => {
+            // Exibe resultados
+            exibirSugestoes(request.sugestoes);
+            statusDiv.classList.add('hidden');
+            resultadosDiv.classList.remove('hidden');
+            progressoBar.style.width = '100%';
+            
+            // Mostra mensagem de sucesso com número de tentativas se houver
+            if (request.tentativas && request.tentativas > 1) {
+              textoStatus.textContent = `Análise concluída! (${request.tentativas} tentativas)`;
+            } else {
+              textoStatus.textContent = 'Análise concluída!';
+            }
+          });
+        } else if (request.abortada) {
+          textoStatus.textContent = 'Análise abortada pelo usuário';
+          progressoBar.style.width = '0%';
+        } else {
+          statusDiv.classList.add('hidden');
+          vaziaDiv.classList.remove('hidden');
+          
+          // Mostra mensagem de erro com informações sobre tentativas
+          let mensagemErro = request.erro || 'Nenhuma sugestão encontrada';
+          if (request.tentativas && request.tentativas > 1) {
+            mensagemErro += ` (${request.tentativas} tentativas realizadas)`;
+          }
+          textoStatus.textContent = mensagemErro;
+          
+          // Mostra alerta apenas se houve erro real (não se foi apenas "nenhuma sugestão")
+          if (request.erro && !request.erro.includes('Nenhuma sugestão')) {
+            alert(`Erro na análise:\n\n${mensagemErro}\n\nVerifique o console do Service Worker para mais detalhes.`);
+          }
+        }
+        
+        // Remove listeners
+        chrome.runtime.onMessage.removeListener(progressListener);
+        chrome.runtime.onMessage.removeListener(resultadoListener);
+        
+        // Reabilita botão
+        analiseEmAndamento = false;
+        btnAnalisar.disabled = false;
+        btnAnalisar.innerHTML = '<span class="btn-icon">🔍</span> Analisar Inbox';
+        btnAbortar.classList.add('hidden');
+        
+        return true;
+      }
+    };
+    
+    // Adiciona listeners temporários
     chrome.runtime.onMessage.addListener(progressListener);
+    chrome.runtime.onMessage.addListener(resultadoListener);
     
-    // Envia mensagem para iniciar análise
-    const response = await enviarMensagemComRetry({
-      acao: 'analisarSugestoes'
-    });
-    
-    // Remove listener
-    chrome.runtime.onMessage.removeListener(progressListener);
-    
-    if (analiseAbortada) {
-      textoStatus.textContent = 'Análise abortada pelo usuário';
-      progressoBar.style.width = '0%';
-      return;
-    }
-    
-    if (response && response.sucesso && response.sugestoes && response.sugestoes.length > 0) {
-      // Salva sugestões
-      await salvarSugestoes(response.sugestoes);
+    // Envia mensagem para iniciar análise (não aguarda resposta completa)
+    try {
+      const response = await enviarMensagemComRetry({
+        acao: 'analisarSugestoes'
+      }, 1); // Apenas 1 tentativa, resposta imediata
       
-      // Exibe resultados
-      exibirSugestoes(response.sugestoes);
+      // Se a resposta indica que está em andamento, aguarda resultado final via listener
+      if (response && response.emAndamento) {
+        console.log('[EmailZen] Análise iniciada, aguardando conclusão...');
+        // A análise continuará em background e enviará progresso/resultado via listeners
+        return; // Sai da função, mas listeners continuam ativos
+      }
+    } catch (error) {
+      console.error('Erro ao iniciar análise:', error);
+      // Remove listeners em caso de erro
+      chrome.runtime.onMessage.removeListener(progressListener);
+      chrome.runtime.onMessage.removeListener(resultadoListener);
+      
       statusDiv.classList.add('hidden');
-      resultadosDiv.classList.remove('hidden');
-      progressoBar.style.width = '100%';
-      textoStatus.textContent = 'Análise concluída!';
-    } else {
-      statusDiv.classList.add('hidden');
-      vaziaDiv.classList.remove('hidden');
-      textoStatus.textContent = 'Nenhuma sugestão encontrada';
+      alert('Erro ao iniciar análise: ' + (error.message || 'Erro desconhecido'));
+      
+      analiseEmAndamento = false;
+      btnAnalisar.disabled = false;
+      btnAnalisar.innerHTML = '<span class="btn-icon">🔍</span> Analisar Inbox';
+      btnAbortar.classList.add('hidden');
+      return;
     }
     
   } catch (error) {
     console.error('Erro na análise:', error);
+    // Remove listeners em caso de erro
+    if (progressListener) {
+      chrome.runtime.onMessage.removeListener(progressListener);
+    }
+    if (resultadoListener) {
+      chrome.runtime.onMessage.removeListener(resultadoListener);
+    }
+    
     statusDiv.classList.add('hidden');
-    alert('Erro ao analisar inbox: ' + (error.message || 'Erro desconhecido'));
-  } finally {
+    alert('Erro ao iniciar análise: ' + (error.message || 'Erro desconhecido'));
+    
     analiseEmAndamento = false;
     btnAnalisar.disabled = false;
     btnAnalisar.innerHTML = '<span class="btn-icon">🔍</span> Analisar Inbox';
