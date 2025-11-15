@@ -13,14 +13,29 @@ const GMAIL_API_BASE = 'https://gmail.googleapis.com/gmail/v1';
 export async function obterTokenOAuth() {
   return new Promise((resolve, reject) => {
     chrome.identity.getAuthToken(
-      { interactive: true },
+      { 
+        interactive: true,
+        scopes: [
+          'https://www.googleapis.com/auth/gmail.modify',
+          'https://www.googleapis.com/auth/gmail.labels',
+          'https://www.googleapis.com/auth/gmail.readonly'
+        ]
+      },
       async (token) => {
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+          const errorMsg = chrome.runtime.lastError.message;
+          console.error('[EmailZen] Erro ao obter token:', errorMsg);
+          reject(new Error(errorMsg));
+          return;
+        }
+        
+        if (!token) {
+          reject(new Error('Token não foi retornado. Verifique se autorizou os escopos necessários.'));
           return;
         }
         
         await salvarToken(token);
+        console.log('[EmailZen] Token OAuth obtido com sucesso');
         resolve(token);
       }
     );
@@ -68,8 +83,9 @@ async function fazerRequisicao(endpoint, options = {}) {
   
   const response = await fetch(url, config);
   
-  // Se token expirou, tenta renovar
+  // Se token expirou (401), tenta renovar
   if (response.status === 401) {
+    console.log('[EmailZen] Token expirado, renovando...');
     await removerToken();
     token = await obterTokenOAuth();
     config.headers['Authorization'] = `Bearer ${token}`;
@@ -82,7 +98,31 @@ async function fazerRequisicao(endpoint, options = {}) {
     return await retryResponse.json();
   }
   
+  // Se acesso negado (403), pode ser problema de permissões ou escopos
+  if (response.status === 403) {
+    const errorBody = await response.text().catch(() => '');
+    console.error('[EmailZen] Erro 403 - Acesso negado:', errorBody);
+    
+    // Tenta reautenticar para obter novos escopos
+    console.log('[EmailZen] Tentando reautenticar com escopos corretos...');
+    await removerToken();
+    token = await obterTokenOAuth();
+    config.headers['Authorization'] = `Bearer ${token}`;
+    const retryResponse = await fetch(url, config);
+    
+    if (!retryResponse.ok) {
+      if (retryResponse.status === 403) {
+        throw new Error(`Erro 403: Acesso negado à Gmail API. Verifique se:\n1. A Gmail API está ativada no Google Cloud Console\n2. Os escopos estão configurados na tela de consentimento OAuth\n3. Você autorizou todos os escopos necessários`);
+      }
+      throw new Error(`Erro na API: ${retryResponse.status} ${retryResponse.statusText}`);
+    }
+    
+    return await retryResponse.json();
+  }
+  
   if (!response.ok) {
+    const errorBody = await response.text().catch(() => '');
+    console.error('[EmailZen] Erro na API:', response.status, errorBody);
     throw new Error(`Erro na API: ${response.status} ${response.statusText}`);
   }
   
