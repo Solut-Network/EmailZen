@@ -22,6 +22,10 @@ async function inicializar() {
   await carregarEstatisticas();
   
   // Event listeners
+  document.getElementById('btn-executar-regras').addEventListener('click', () => {
+    executarRegras();
+  });
+  
   document.getElementById('btn-nova-regra').addEventListener('click', () => {
     abrirModalRegra();
   });
@@ -87,6 +91,7 @@ async function carregarRegras() {
 function criarCardRegra(regra) {
   const card = document.createElement('div');
   card.className = 'regra-card';
+  card.setAttribute('data-regra-id', regra.id);
   
   const condicoes = [];
   if (regra.condicoes?.remetente?.length > 0) {
@@ -117,6 +122,7 @@ function criarCardRegra(regra) {
         <span class="regra-status ${regra.ativa ? 'ativa' : 'inativa'}">
           ${regra.ativa ? 'Ativa' : 'Inativa'}
         </span>
+        <span class="regra-exec-status hidden" data-status=""></span>
       </div>
     </div>
     <div class="regra-detalhes">
@@ -301,6 +307,87 @@ async function carregarEstatisticas() {
     document.getElementById('stat-excluidos').textContent = stats.emailsExcluidos || 0;
   } catch (error) {
     console.error('Erro ao carregar estatísticas:', error);
+  }
+}
+
+/**
+ * Executa todas as regras ativas
+ */
+async function executarRegras() {
+  const btnExecutar = document.getElementById('btn-executar-regras');
+  const regras = await obterRegras();
+  const regrasAtivas = regras.filter(r => r.ativa);
+  
+  if (regrasAtivas.length === 0) {
+    alert('Nenhuma regra ativa para executar.');
+    return;
+  }
+  
+  // Desabilita botão
+  btnExecutar.disabled = true;
+  btnExecutar.innerHTML = '<span class="btn-icon">⏳</span> Executando...';
+  
+  // Limpa status anteriores
+  document.querySelectorAll('.regra-exec-status').forEach(el => {
+    el.classList.add('hidden');
+    el.textContent = '';
+    el.setAttribute('data-status', '');
+  });
+  
+  try {
+    // Executa cada regra individualmente
+    for (let i = 0; i < regrasAtivas.length; i++) {
+      const regra = regrasAtivas[i];
+      const card = document.querySelector(`[data-regra-id="${regra.id}"]`);
+      let statusEl = null;
+      
+      if (card) {
+        statusEl = card.querySelector('.regra-exec-status');
+        if (statusEl) {
+          statusEl.classList.remove('hidden');
+          statusEl.classList.add('executando');
+          statusEl.setAttribute('data-status', 'executando');
+          statusEl.innerHTML = '⏳ Executando...';
+        }
+      }
+      
+      // Executa a regra
+      const response = await chrome.runtime.sendMessage({
+        acao: 'executarRegra',
+        regraId: regra.id
+      });
+      
+      if (card && statusEl) {
+        if (response.sucesso) {
+          statusEl.classList.remove('executando');
+          statusEl.classList.add('concluida');
+          statusEl.setAttribute('data-status', 'concluida');
+          statusEl.innerHTML = `✅ Concluída (${response.processados || 0} emails)`;
+        } else {
+          statusEl.classList.remove('executando');
+          statusEl.classList.add('erro');
+          statusEl.setAttribute('data-status', 'erro');
+          statusEl.innerHTML = `❌ Erro: ${response.erro || 'Erro desconhecido'}`;
+        }
+      }
+      
+      // Pequeno delay para visualização
+      await new Promise(resolve => setTimeout(resolve, 300));
+    }
+    
+    // Atualiza estatísticas
+    await carregarEstatisticas();
+    
+    // Mostra mensagem de conclusão
+    alert(`Execução concluída! ${regrasAtivas.length} regra(s) processada(s).`);
+    
+  } catch (error) {
+    console.error('Erro ao executar regras:', error);
+    alert('Erro ao executar regras: ' + error.message);
+  } finally {
+    // Reabilita botão
+    btnExecutar.disabled = false;
+    btnExecutar.innerHTML = '<span class="btn-icon">▶️</span> Executar Regras';
   }
 }
 

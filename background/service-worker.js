@@ -143,6 +143,69 @@ async function processarMensagem(messageId, regras) {
 }
 
 /**
+ * Executa uma regra específica
+ * @param {string} regraId - ID da regra
+ * @returns {Promise<Object>} Resultado da execução
+ */
+async function executarRegraIndividual(regraId) {
+  try {
+    console.log(`[EmailZen] Executando regra: ${regraId}`);
+    
+    const regras = await obterRegras();
+    const regra = regras.find(r => r.id === regraId);
+    
+    if (!regra) {
+      throw new Error('Regra não encontrada');
+    }
+    
+    if (!regra.ativa) {
+      throw new Error('Regra está inativa');
+    }
+    
+    await inicializarLabelsCache();
+    
+    // Busca mensagens não lidas na inbox
+    const resultado = await buscarMensagens({
+      query: 'in:inbox is:unread',
+      maxResults: 100
+    });
+    
+    if (!resultado.messages || resultado.messages.length === 0) {
+      return { processados: 0, total: 0 };
+    }
+    
+    const messageIds = resultado.messages.map(m => m.id);
+    let processados = 0;
+    
+    // Processa mensagens que correspondem à regra
+    for (const messageId of messageIds) {
+      try {
+        const resultadoProcessamento = await processarMensagem(messageId, [regra]);
+        if (resultadoProcessamento.processado) {
+          processados++;
+        }
+      } catch (error) {
+        console.error(`Erro ao processar mensagem ${messageId}:`, error);
+      }
+    }
+    
+    // Atualiza estatísticas
+    const { emailsProcessados = 0 } = await chrome.storage.local.get(['estatisticas']);
+    await salvarEstatisticas({
+      emailsProcessados: emailsProcessados + processados
+    });
+    
+    console.log(`[EmailZen] Regra ${regraId}: ${processados} mensagens processadas`);
+    
+    return { processados, total: messageIds.length };
+    
+  } catch (error) {
+    console.error(`[EmailZen] Erro ao executar regra ${regraId}:`, error);
+    throw error;
+  }
+}
+
+/**
  * Processa emails da inbox
  */
 async function processarEmails() {
@@ -434,6 +497,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.acao === 'criarRegraAutomatica') {
     criarRegraAutomatica(request.sugestao, request.opcoes).then(regraId => {
       sendResponse({ sucesso: true, regraId });
+    }).catch(error => {
+      sendResponse({ sucesso: false, erro: error.message });
+    });
+    return true;
+  }
+  
+  if (request.acao === 'executarRegra') {
+    executarRegraIndividual(request.regraId).then(resultado => {
+      sendResponse({ 
+        sucesso: true, 
+        processados: resultado.processados,
+        total: resultado.total
+      });
     }).catch(error => {
       sendResponse({ sucesso: false, erro: error.message });
     });
