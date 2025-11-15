@@ -2,6 +2,20 @@
 
 Extensão completa para Google Chrome que organiza emails do Gmail automaticamente usando filtros inteligentes e exclusão automática.
 
+## 📸 Screenshots
+
+Veja como o EmailZen funciona:
+
+### Popup da Extensão
+![Popup Autenticado](docs/screenshots/popup-autenticado.png)
+*Interface principal do popup com sugestões inteligentes*
+
+### Página de Configurações
+![Configurações](docs/screenshots/configuracoes-regras.png)
+*Gerenciamento de regras de filtro e estatísticas*
+
+> 📁 Mais screenshots disponíveis em [`docs/screenshots/`](docs/screenshots/)
+
 ## 🚀 Funcionalidades
 
 ### 1. Painel de Organização

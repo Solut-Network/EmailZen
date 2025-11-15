@@ -48,7 +48,7 @@ __pycache__/
 *.bak
 *.backup
 
-# Logos e imagens (não commitar)
+# Logos e imagens privadas (não commitar)
 logos/*.png
 logos/*.jpg
 logos/*.jpeg
@@ -59,4 +59,7 @@ imagens/
 assets/logos/
 assets/imagens/
 *.logo.*
+
+# Screenshots e documentação visual (SERÃO commitadas)
+# docs/screenshots/ está permitido no Git
 
