@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gmail Organizer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <h1>📧 Gmail Organizer</h1>
+    </div>
+    
+    <div class="popup-content">
+      <div id="status-container">
+        <div class="status-item">
+          <span class="status-label">Status:</span>
+          <span id="status-text" class="status-value">Verificando...</span>
+        </div>
+      </div>
+      
+      <div id="auth-container" class="hidden">
+        <p class="auth-message">Você precisa autenticar com sua conta Google para usar esta extensão.</p>
+        <button id="btn-autenticar" class="btn-primary">Autenticar com Google</button>
+      </div>
+      
+      <div id="main-container" class="hidden">
+        <div class="stats-section">
+          <div class="stat-item">
+            <span class="stat-label">Emails Processados</span>
+            <span id="stat-processados" class="stat-value">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Emails Excluídos</span>
+            <span id="stat-excluidos" class="stat-value">0</span>
+          </div>
+        </div>
+        
+        <div class="actions-section">
+          <button id="btn-processar" class="btn-secondary">Processar Agora</button>
+          <button id="btn-opcoes" class="btn-primary">Abrir Configurações</button>
+        </div>
+      </div>
+      
+      <div id="loading-container" class="loading">
+        <div class="spinner"></div>
+        <p>Carregando...</p>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module" src="popup.js"></script>
+</body>
+</html>
+

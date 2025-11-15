@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gmail Organizer - Configurações</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>📧 Gmail Organizer - Configurações</h1>
+      <p class="subtitle">Gerencie suas regras de organização automática de emails</p>
+    </header>
+    
+    <div class="content">
+      <div class="section">
+        <div class="section-header">
+          <h2>Regras de Filtro</h2>
+          <button id="btn-nova-regra" class="btn-primary">+ Nova Regra</button>
+        </div>
+        
+        <div id="regras-lista" class="regras-lista">
+          <div class="loading">Carregando regras...</div>
+        </div>
+      </div>
+      
+      <div class="section">
+        <div class="section-header">
+          <h2>Estatísticas</h2>
+        </div>
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Emails Processados</div>
+            <div id="stat-processados" class="stat-value">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Emails Excluídos</div>
+            <div id="stat-excluidos" class="stat-value">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Regras Ativas</div>
+            <div id="stat-regras" class="stat-value">0</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Modal para criar/editar regra -->
+    <div id="modal-regra" class="modal hidden">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="modal-titulo">Nova Regra</h2>
+          <button id="modal-fechar" class="modal-close">×</button>
+        </div>
+        <div class="modal-body">
+          <form id="form-regra">
+            <div class="form-group">
+              <label for="regra-nome">Nome da Regra *</label>
+              <input type="text" id="regra-nome" required placeholder="Ex: Newsletters">
+            </div>
+            
+            <div class="form-section">
+              <h3>Condições</h3>
+              
+              <div class="form-group">
+                <label for="regra-remetente">Remetente</label>
+                <input type="text" id="regra-remetente" placeholder="Ex: @newsletter.com ou email@exemplo.com">
+                <small>Separe múltiplos valores por vírgula</small>
+              </div>
+              
+              <div class="form-group">
+                <label for="regra-assunto">Assunto (palavras-chave)</label>
+                <input type="text" id="regra-assunto" placeholder="Ex: unsubscribe, newsletter">
+                <small>Separe múltiplos valores por vírgula</small>
+              </div>
+            </div>
+            
+            <div class="form-section">
+              <h3>Ações</h3>
+              
+              <div class="form-group">
+                <label for="regra-label">Aplicar Label</label>
+                <input type="text" id="regra-label" placeholder="Ex: Newsletters">
+                <small>O label será criado automaticamente se não existir</small>
+              </div>
+              
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="regra-marcar-lido">
+                  <span>Marcar como lido automaticamente</span>
+                </label>
+              </div>
+              
+              <div class="form-group">
+                <label class="checkbox-label">
+                  <input type="checkbox" id="regra-arquivar">
+                  <span>Arquivar automaticamente (remover da inbox)</span>
+                </label>
+              </div>
+              
+              <div class="form-group">
+                <label for="regra-retencao">Tempo de Retenção (dias)</label>
+                <input type="number" id="regra-retencao" min="0" placeholder="0 = nunca excluir">
+                <small>Emails serão excluídos automaticamente após este período</small>
+              </div>
+            </div>
+            
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="regra-ativa" checked>
+                <span>Regra ativa</span>
+              </label>
+            </div>
+            
+            <div class="form-actions">
+              <button type="button" id="btn-cancelar" class="btn-secondary">Cancelar</button>
+              <button type="submit" class="btn-primary">Salvar Regra</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <script type="module" src="options.js"></script>
+</body>
+</html>
+

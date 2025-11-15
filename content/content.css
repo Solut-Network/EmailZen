@@ -1,0 +1,205 @@
+/* Estilos do painel lateral do Gmail Organizer */
+
+#gmail-organizer-painel {
+  position: fixed;
+  top: 0;
+  right: -400px;
+  width: 400px;
+  height: 100vh;
+  background: #fff;
+  box-shadow: -2px 0 10px rgba(0, 0, 0, 0.1);
+  z-index: 10000;
+  transition: right 0.3s ease;
+  overflow-y: auto;
+  font-family: 'Google Sans', Roboto, Arial, sans-serif;
+}
+
+#gmail-organizer-painel.aberto {
+  right: 0;
+}
+
+#gmail-organizer-painel-header {
+  padding: 16px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+#gmail-organizer-painel-header h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+  color: #202124;
+}
+
+#gmail-organizer-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 50%;
+  transition: background 0.2s;
+}
+
+#gmail-organizer-toggle:hover {
+  background: #e8eaed;
+}
+
+#gmail-organizer-toggle svg {
+  width: 20px;
+  height: 20px;
+  fill: #5f6368;
+}
+
+#gmail-organizer-conteudo {
+  padding: 16px;
+}
+
+.gmail-organizer-secao {
+  margin-bottom: 24px;
+}
+
+.gmail-organizer-secao h3 {
+  font-size: 14px;
+  font-weight: 500;
+  color: #5f6368;
+  margin: 0 0 12px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.gmail-organizer-categoria {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  margin-bottom: 8px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.gmail-organizer-categoria:hover {
+  background: #e8eaed;
+}
+
+.gmail-organizer-categoria-nome {
+  font-size: 14px;
+  color: #202124;
+  font-weight: 500;
+}
+
+.gmail-organizer-categoria-contador {
+  background: #1a73e8;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.gmail-organizer-botao {
+  background: #1a73e8;
+  color: white;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.gmail-organizer-botao:hover {
+  background: #1557b0;
+}
+
+.gmail-organizer-botao:disabled {
+  background: #dadce0;
+  cursor: not-allowed;
+}
+
+.gmail-organizer-botao-secundario {
+  background: white;
+  color: #1a73e8;
+  border: 1px solid #dadce0;
+}
+
+.gmail-organizer-botao-secundario:hover {
+  background: #f8f9fa;
+}
+
+.gmail-organizer-status {
+  padding: 12px;
+  background: #e8f0fe;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  color: #1967d2;
+}
+
+.gmail-organizer-status.erro {
+  background: #fce8e6;
+  color: #d93025;
+}
+
+.gmail-organizer-status.sucesso {
+  background: #e6f4ea;
+  color: #137333;
+}
+
+.gmail-organizer-loading {
+  text-align: center;
+  padding: 20px;
+  color: #5f6368;
+  font-size: 14px;
+}
+
+.gmail-organizer-vazio {
+  text-align: center;
+  padding: 40px 20px;
+  color: #5f6368;
+  font-size: 14px;
+}
+
+/* Botão flutuante para abrir painel */
+#gmail-organizer-botao-flutuante {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  background: #1a73e8;
+  border-radius: 50%;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+#gmail-organizer-botao-flutuante:hover {
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+#gmail-organizer-botao-flutuante svg {
+  width: 24px;
+  height: 24px;
+  fill: white;
+}
+
+#gmail-organizer-botao-flutuante.oculto {
+  display: none;
+}
+

@@ -1,0 +1,39 @@
+# Arquivos do sistema
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Arquivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Arquivos temporários
+*.log
+*.tmp
+*.temp
+
+# Node modules (se houver)
+node_modules/
+
+# Arquivos de build
+dist/
+build/
+
+# Arquivos de ambiente
+.env
+.env.local
+
+# Arquivos Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Arquivos de backup
+*.bak
+*.backup
+
