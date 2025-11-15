@@ -38,9 +38,26 @@
         </div>
         
         <div id="sugestoes-section" class="sugestoes-section hidden">
-          <h3 class="sugestoes-title">💡 Sugestões Inteligentes</h3>
-          <p class="sugestoes-subtitle">Remetentes frequentes encontrados na sua inbox:</p>
+          <div class="sugestoes-header">
+            <div>
+              <h3 class="sugestoes-title">💡 Sugestões Inteligentes</h3>
+              <p class="sugestoes-subtitle">Remetentes frequentes encontrados na sua inbox:</p>
+            </div>
+            <button id="btn-limpar-sugestoes" class="btn-limpar" title="Limpar sugestões">🗑️</button>
+          </div>
+          <div class="sugestoes-search-container">
+            <input 
+              type="text" 
+              id="sugestoes-search" 
+              class="sugestoes-search" 
+              placeholder="🔍 Pesquisar remetente..."
+              autocomplete="off"
+            />
+          </div>
           <div id="sugestoes-lista" class="sugestoes-lista"></div>
+          <div id="sugestoes-empty" class="sugestoes-empty hidden">
+            <p>Nenhuma sugestão encontrada para "<span id="search-term"></span>"</p>
+          </div>
         </div>
         
         <div class="actions-section">

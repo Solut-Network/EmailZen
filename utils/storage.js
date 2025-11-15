@@ -168,3 +168,30 @@ export async function obterLabelsCache() {
   return labelsCache;
 }
 
+/**
+ * Salva sugestões de regras inteligentes
+ * @param {Array} sugestoes - Lista de sugestões
+ */
+export async function salvarSugestoes(sugestoes) {
+  await chrome.storage.local.set({ 
+    sugestoesInteligentes: sugestoes,
+    sugestoesSalvasEm: Date.now()
+  });
+}
+
+/**
+ * Obtém sugestões salvas
+ * @returns {Promise<Array>} Lista de sugestões
+ */
+export async function obterSugestoes() {
+  const { sugestoesInteligentes = [] } = await chrome.storage.local.get(['sugestoesInteligentes']);
+  return sugestoesInteligentes;
+}
+
+/**
+ * Remove sugestões salvas
+ */
+export async function limparSugestoes() {
+  await chrome.storage.local.remove(['sugestoesInteligentes', 'sugestoesSalvasEm']);
+}
+

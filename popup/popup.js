@@ -2,9 +2,8 @@
  * Popup Script - Interface do ícone da extensão
  */
 
-import { obterToken, removerToken } from '../utils/storage.js';
+import { obterToken, removerToken, obterEstatisticas, salvarSugestoes, obterSugestoes, limparSugestoes } from '../utils/storage.js';
 import { obterTokenOAuth, fazerLogout } from '../utils/gmail-api.js';
-import { obterEstatisticas } from '../utils/storage.js';
 
 let autenticado = false;
 
@@ -22,6 +21,7 @@ async function inicializar() {
     
     if (autenticado) {
       await carregarEstatisticas();
+      await carregarSugestoesSalvas();
     }
   } catch (error) {
     console.error('Erro ao inicializar popup:', error);
@@ -64,6 +64,25 @@ async function carregarEstatisticas() {
     document.getElementById('stat-excluidos').textContent = stats.emailsExcluidos || 0;
   } catch (error) {
     console.error('Erro ao carregar estatísticas:', error);
+  }
+}
+
+/**
+ * Carrega sugestões salvas e exibe na interface
+ */
+async function carregarSugestoesSalvas() {
+  try {
+    const sugestoes = await obterSugestoes();
+    if (sugestoes && sugestoes.length > 0) {
+      // Limpa o campo de busca ao carregar
+      const searchInput = document.getElementById('sugestoes-search');
+      if (searchInput) {
+        searchInput.value = '';
+      }
+      mostrarSugestoes(sugestoes, '');
+    }
+  } catch (error) {
+    console.error('Erro ao carregar sugestões salvas:', error);
   }
 }
 
@@ -143,6 +162,18 @@ document.getElementById('btn-opcoes')?.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
+document.getElementById('btn-limpar-sugestoes')?.addEventListener('click', async () => {
+  if (confirm('Deseja limpar todas as sugestões salvas?')) {
+    await limparSugestoesSalvas();
+  }
+});
+
+// Campo de pesquisa de sugestões
+document.getElementById('sugestoes-search')?.addEventListener('input', (e) => {
+  const termoBusca = e.target.value;
+  mostrarSugestoes(todasSugestoes, termoBusca);
+});
+
 document.getElementById('btn-analisar')?.addEventListener('click', async () => {
   const btn = document.getElementById('btn-analisar');
   btn.disabled = true;
@@ -151,6 +182,8 @@ document.getElementById('btn-analisar')?.addEventListener('click', async () => {
   try {
     const response = await chrome.runtime.sendMessage({ acao: 'analisarSugestoes' });
     if (response.sucesso && response.sugestoes && response.sugestoes.length > 0) {
+      // Salva as sugestões para persistir entre abas
+      await salvarSugestoes(response.sugestoes);
       mostrarSugestoes(response.sugestoes);
       mostrarStatus('Análise concluída!', 'autenticado');
     } else {
@@ -168,40 +201,85 @@ document.getElementById('btn-analisar')?.addEventListener('click', async () => {
   }
 });
 
+// Armazena todas as sugestões para filtragem
+let todasSugestoes = [];
+
 /**
  * Mostra sugestões de regras na interface
  */
-function mostrarSugestoes(sugestoes) {
+function mostrarSugestoes(sugestoes, termoBusca = '') {
   const sugestoesSection = document.getElementById('sugestoes-section');
   const sugestoesLista = document.getElementById('sugestoes-lista');
+  const sugestoesEmpty = document.getElementById('sugestoes-empty');
+  const searchTermSpan = document.getElementById('search-term');
+  
+  if (!sugestoes || sugestoes.length === 0) {
+    sugestoesSection.classList.add('hidden');
+    return;
+  }
+  
+  // Salva todas as sugestões para filtragem
+  todasSugestoes = sugestoes;
   
   sugestoesSection.classList.remove('hidden');
   sugestoesLista.innerHTML = '';
   
-  sugestoes.forEach(sugestao => {
-    const card = document.createElement('div');
-    card.className = 'sugestao-card';
-    card.innerHTML = `
-      <div class="sugestao-info">
-        <strong class="sugestao-dominio">${sugestao.dominio}</strong>
-        <span class="sugestao-stats">${sugestao.quantidade} emails (${sugestao.porcentagem}%)</span>
-      </div>
-      <button class="btn-sugestao" data-dominio="${sugestao.dominio}" data-quantidade="${sugestao.quantidade}">
-        Criar Regra
-      </button>
-    `;
+  // Filtra sugestões se houver termo de busca
+  let sugestoesFiltradas = sugestoes;
+  if (termoBusca && termoBusca.trim() !== '') {
+    const termo = termoBusca.toLowerCase().trim();
+    sugestoesFiltradas = sugestoes.filter(s => 
+      s.dominio.toLowerCase().includes(termo) ||
+      (s.email && s.email.toLowerCase().includes(termo))
+    );
+  }
+  
+  // Mostra mensagem se não encontrou resultados
+  if (sugestoesFiltradas.length === 0 && termoBusca.trim() !== '') {
+    sugestoesLista.classList.add('hidden');
+    sugestoesEmpty.classList.remove('hidden');
+    searchTermSpan.textContent = termoBusca;
+  } else {
+    sugestoesLista.classList.remove('hidden');
+    sugestoesEmpty.classList.add('hidden');
     
-    const btnCriar = card.querySelector('.btn-sugestao');
-    btnCriar.addEventListener('click', async () => {
-      await criarRegraDaSugestao(sugestao);
-      card.remove();
-      if (sugestoesLista.children.length === 0) {
-        sugestoesSection.classList.add('hidden');
-      }
+    sugestoesFiltradas.forEach(sugestao => {
+      const card = document.createElement('div');
+      card.className = 'sugestao-card';
+      card.setAttribute('data-dominio', sugestao.dominio);
+      card.innerHTML = `
+        <div class="sugestao-info">
+          <strong class="sugestao-dominio">${sugestao.dominio}</strong>
+          <span class="sugestao-stats">${sugestao.quantidade} emails (${sugestao.porcentagem}%)</span>
+        </div>
+        <button class="btn-sugestao" data-dominio="${sugestao.dominio}" data-quantidade="${sugestao.quantidade}">
+          Criar Regra
+        </button>
+      `;
+      
+      const btnCriar = card.querySelector('.btn-sugestao');
+      btnCriar.addEventListener('click', async () => {
+        await criarRegraDaSugestao(sugestao);
+      });
+      
+      sugestoesLista.appendChild(card);
     });
-    
-    sugestoesLista.appendChild(card);
-  });
+  }
+}
+
+/**
+ * Limpa sugestões salvas
+ */
+async function limparSugestoesSalvas() {
+  await limparSugestoes();
+  todasSugestoes = [];
+  const sugestoesSection = document.getElementById('sugestoes-section');
+  const searchInput = document.getElementById('sugestoes-search');
+  if (searchInput) {
+    searchInput.value = '';
+  }
+  sugestoesSection.classList.add('hidden');
+  mostrarStatus('Sugestões limpas', 'autenticado');
 }
 
 /**
@@ -219,6 +297,16 @@ async function criarRegraDaSugestao(sugestao) {
     });
     
     if (response.sucesso) {
+      // Remove a sugestão da lista salva
+      const sugestoesAtuais = await obterSugestoes();
+      const sugestoesAtualizadas = sugestoesAtuais.filter(s => s.dominio !== sugestao.dominio);
+      await salvarSugestoes(sugestoesAtualizadas);
+      
+      // Mantém o filtro de busca se houver
+      const searchInput = document.getElementById('sugestoes-search');
+      const termoBusca = searchInput ? searchInput.value : '';
+      mostrarSugestoes(sugestoesAtualizadas, termoBusca);
+      
       mostrarStatus('Regra criada com sucesso!', 'autenticado');
       await carregarEstatisticas();
     } else {
