@@ -273,3 +273,156 @@ export function mensagemCorrespondeRegra(mensagem, regra) {
   return true;
 }
 
+/**
+ * Extrai domínio de um email ou campo From
+ * @param {string} from - Campo From do header ou email completo
+ * @returns {string} Domínio (ex: "exemplo.com")
+ */
+function extrairDominio(from) {
+  // Tenta extrair email primeiro
+  const emailMatch = from.match(/<([^>]+)>/) || from.match(/([\w\.-]+@[\w\.-]+\.\w+)/);
+  const email = emailMatch ? emailMatch[1] : from;
+  
+  // Extrai domínio do email
+  const dominioMatch = email.match(/@([^\s>]+)/);
+  if (dominioMatch) {
+    let dominio = dominioMatch[1].toLowerCase();
+    // Remove caracteres inválidos no final
+    dominio = dominio.replace(/[^\w\.-]+$/, '');
+    return dominio;
+  }
+  return '';
+}
+
+/**
+ * Extrai nome do remetente de um email
+ * @param {string} from - Campo From do header
+ * @returns {string} Email do remetente
+ */
+function extrairEmailRemetente(from) {
+  const match = from.match(/<([^>]+)>/) || from.match(/([\w\.-]+@[\w\.-]+\.\w+)/);
+  return match ? match[1].toLowerCase() : from.toLowerCase();
+}
+
+/**
+ * Analisa remetentes frequentes na inbox
+ * @param {number} limiteMinimo - Número mínimo de emails para considerar (padrão: 2)
+ * @param {number} maxResultados - Máximo de resultados (padrão: 10)
+ * @returns {Promise<Array>} Lista de remetentes frequentes com estatísticas
+ */
+export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultados = 10) {
+  try {
+    console.log('[EmailZen] Iniciando análise de remetentes frequentes...');
+    
+    // Busca emails da inbox (últimos 1000 para análise mais completa)
+    // Tenta buscar mais emails para ter uma amostra melhor
+    let resultado = await buscarMensagens({
+      query: 'in:inbox',
+      maxResults: 500
+    });
+    
+    // Se há mais páginas, busca mais emails
+    let totalEmails = resultado.messages ? resultado.messages.length : 0;
+    while (resultado.nextPageToken && totalEmails < 1000) {
+      const proximaPagina = await buscarMensagens({
+        query: 'in:inbox',
+        maxResults: 500,
+        pageToken: resultado.nextPageToken
+      });
+      if (proximaPagina.messages && proximaPagina.messages.length > 0) {
+        resultado.messages = [...(resultado.messages || []), ...proximaPagina.messages];
+        resultado.nextPageToken = proximaPagina.nextPageToken;
+        totalEmails = resultado.messages.length;
+      } else {
+        break;
+      }
+    }
+    
+    if (!resultado.messages || resultado.messages.length === 0) {
+      console.log('[EmailZen] Nenhum email encontrado para análise');
+      return [];
+    }
+    
+    console.log(`[EmailZen] Analisando ${resultado.messages.length} emails...`);
+    
+    // Contador de remetentes
+    const remetentesMap = new Map();
+    
+    // Processa em batches para não sobrecarregar
+    const batchSize = 50;
+    for (let i = 0; i < resultado.messages.length; i += batchSize) {
+      const batch = resultado.messages.slice(i, i + batchSize);
+      const promises = batch.map(async (msg) => {
+        try {
+          const mensagem = await obterMensagem(msg.id);
+          const headers = {};
+          mensagem.payload?.headers?.forEach(header => {
+            headers[header.name.toLowerCase()] = header.value;
+          });
+          
+          const from = headers.from || '';
+          if (from) {
+            const email = extrairEmailRemetente(from);
+            const dominio = extrairDominio(from);
+            
+            // Conta por domínio (mais útil para identificar serviços)
+            if (dominio && dominio.length > 0) {
+              const atual = remetentesMap.get(dominio) || {
+                dominio,
+                email: email,
+                count: 0,
+                ultimoEmail: null
+              };
+              atual.count++;
+              if (!atual.ultimoEmail || msg.id > atual.ultimoEmail) {
+                atual.ultimoEmail = msg.id;
+              }
+              remetentesMap.set(dominio, atual);
+            } else {
+              console.warn(`[EmailZen] Não foi possível extrair domínio de: ${from}`);
+            }
+          }
+        } catch (error) {
+          console.error(`Erro ao processar mensagem ${msg.id}:`, error);
+        }
+      });
+      
+      await Promise.all(promises);
+      
+      // Rate limiting
+      if (i + batchSize < resultado.messages.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+    }
+    
+    // Converte para array e filtra por limite mínimo
+    const remetentesFrequentes = Array.from(remetentesMap.values())
+      .filter(r => r.count >= limiteMinimo)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, maxResultados)
+      .map(r => ({
+        dominio: r.dominio,
+        email: r.email,
+        quantidade: r.count,
+        porcentagem: ((r.count / resultado.messages.length) * 100).toFixed(1)
+      }));
+    
+    console.log(`[EmailZen] Encontrados ${remetentesFrequentes.length} remetentes frequentes:`, remetentesFrequentes);
+    
+    // Log detalhado para debug
+    if (remetentesFrequentes.length === 0 && resultado.messages.length > 0) {
+      console.log('[EmailZen] Debug: Nenhum remetente frequente encontrado, mas há emails. Verificando...');
+      // Mostra alguns domínios encontrados para debug
+      const todosDominios = Array.from(remetentesMap.entries())
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 5);
+      console.log('[EmailZen] Top 5 domínios encontrados:', todosDominios);
+    }
+    
+    return remetentesFrequentes;
+  } catch (error) {
+    console.error('[EmailZen] Erro ao analisar remetentes:', error);
+    throw error;
+  }
+}
+

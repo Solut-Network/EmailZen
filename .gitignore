@@ -33,6 +33,10 @@ client_secret_*.json
 *.pem
 *.key
 
+# Scripts de atualização (opcional - pode commitar se quiser)
+# atualizar.ps1
+# atualizar.bat
+
 # Arquivos Python
 __pycache__/
 *.pyc

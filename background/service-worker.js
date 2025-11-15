@@ -3,7 +3,7 @@
  * Processa emails automaticamente e gerencia exclusões
  */
 
-import { obterRegras, salvarEstatisticas, adicionarHistorico } from '../utils/storage.js';
+import { obterRegras, salvarEstatisticas, adicionarHistorico, salvarRegra } from '../utils/storage.js';
 import { 
   buscarMensagens, 
   obterMensagem, 
@@ -12,7 +12,8 @@ import {
   obterLabels,
   criarLabel,
   mensagemCorrespondeRegra,
-  processarMensagensBatch
+  processarMensagensBatch,
+  analisarRemetentesFrequentes
 } from '../utils/gmail-api.js';
 import { obterLabelsCache, salvarLabelsCache } from '../utils/storage.js';
 
@@ -306,6 +307,82 @@ async function buscarContadorEmails(labelNome) {
 }
 
 /**
+ * Analisa remetentes frequentes e retorna sugestões
+ * @returns {Promise<Array>} Lista de sugestões de regras
+ */
+async function analisarSugestoes() {
+  try {
+    console.log('[EmailZen] Iniciando análise inteligente...');
+    
+    // Verifica regras existentes para não sugerir duplicatas
+    const regrasExistentes = await obterRegras();
+    const dominiosJaRegrados = new Set();
+    regrasExistentes.forEach(regra => {
+      if (regra.condicoes?.remetente) {
+        regra.condicoes.remetente.forEach(rem => {
+          const dominio = rem.startsWith('@') ? rem.substring(1) : rem.split('@')[1];
+          if (dominio) dominiosJaRegrados.add(dominio.toLowerCase());
+        });
+      }
+    });
+    
+    // Analisa remetentes frequentes (limite mínimo: 2 emails)
+    const remetentesFrequentes = await analisarRemetentesFrequentes(2, 10);
+    
+    // Filtra remetentes que já têm regras
+    const sugestoes = remetentesFrequentes
+      .filter(r => !dominiosJaRegrados.has(r.dominio))
+      .map(r => ({
+        dominio: r.dominio,
+        quantidade: r.quantidade,
+        porcentagem: r.porcentagem,
+        sugestaoLabel: r.dominio.split('.')[0] || r.dominio
+      }));
+    
+    console.log(`[EmailZen] ${sugestoes.length} sugestões geradas`);
+    
+    return sugestoes;
+  } catch (error) {
+    console.error('[EmailZen] Erro ao analisar sugestões:', error);
+    throw error;
+  }
+}
+
+/**
+ * Cria regra automaticamente a partir de uma sugestão
+ * @param {Object} sugestao - Sugestão de regra
+ * @param {Object} opcoes - Opções da regra (label, marcarLido, arquivar)
+ * @returns {Promise<string>} ID da regra criada
+ */
+async function criarRegraAutomatica(sugestao, opcoes = {}) {
+  try {
+    const nomeLabel = opcoes.label || sugestao.sugestaoLabel || sugestao.dominio.split('.')[0];
+    
+    const regra = {
+      nome: `Organizar ${sugestao.dominio}`,
+      condicoes: {
+        remetente: [`@${sugestao.dominio}`]
+      },
+      acoes: {
+        label: nomeLabel,
+        marcarLido: opcoes.marcarLido !== undefined ? opcoes.marcarLido : true,
+        arquivar: opcoes.arquivar !== undefined ? opcoes.arquivar : false,
+        retencaoDias: opcoes.retencaoDias || undefined
+      },
+      ativa: true
+    };
+    
+    const regraId = await salvarRegra(regra);
+    console.log(`[EmailZen] Regra criada automaticamente: ${regraId}`);
+    
+    return regraId;
+  } catch (error) {
+    console.error('[EmailZen] Erro ao criar regra automática:', error);
+    throw error;
+  }
+}
+
+/**
  * Listener para mensagens do content script ou popup
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
@@ -341,6 +418,24 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ regras });
     }).catch(error => {
       sendResponse({ regras: [], erro: error.message });
+    });
+    return true;
+  }
+  
+  if (request.acao === 'analisarSugestoes') {
+    analisarSugestoes().then(sugestoes => {
+      sendResponse({ sucesso: true, sugestoes });
+    }).catch(error => {
+      sendResponse({ sucesso: false, erro: error.message, sugestoes: [] });
+    });
+    return true;
+  }
+  
+  if (request.acao === 'criarRegraAutomatica') {
+    criarRegraAutomatica(request.sugestao, request.opcoes).then(regraId => {
+      sendResponse({ sucesso: true, regraId });
+    }).catch(error => {
+      sendResponse({ sucesso: false, erro: error.message });
     });
     return true;
   }

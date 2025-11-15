@@ -143,6 +143,93 @@ document.getElementById('btn-opcoes')?.addEventListener('click', () => {
   chrome.runtime.openOptionsPage();
 });
 
+document.getElementById('btn-analisar')?.addEventListener('click', async () => {
+  const btn = document.getElementById('btn-analisar');
+  btn.disabled = true;
+  btn.textContent = 'Analisando...';
+  
+  try {
+    const response = await chrome.runtime.sendMessage({ acao: 'analisarSugestoes' });
+    if (response.sucesso && response.sugestoes && response.sugestoes.length > 0) {
+      mostrarSugestoes(response.sugestoes);
+      mostrarStatus('Análise concluída!', 'autenticado');
+    } else {
+      const mensagem = response.erro 
+        ? `Erro: ${response.erro}\n\nVerifique o console do Service Worker para mais detalhes.`
+        : 'Nenhuma sugestão encontrada.\n\nIsso pode acontecer se:\n- Não há remetentes com 2+ emails na inbox\n- Todos os remetentes já têm regras criadas\n- A inbox está vazia\n\nVerifique o console do Service Worker (chrome://extensions > Detalhes > Inspecionar visualizações > service-worker) para mais informações.';
+      alert(mensagem);
+    }
+  } catch (error) {
+    console.error('Erro ao analisar:', error);
+    alert('Erro ao analisar inbox: ' + error.message + '\n\nVerifique o console do Service Worker para mais detalhes.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🔍 Analisar Inbox';
+  }
+});
+
+/**
+ * Mostra sugestões de regras na interface
+ */
+function mostrarSugestoes(sugestoes) {
+  const sugestoesSection = document.getElementById('sugestoes-section');
+  const sugestoesLista = document.getElementById('sugestoes-lista');
+  
+  sugestoesSection.classList.remove('hidden');
+  sugestoesLista.innerHTML = '';
+  
+  sugestoes.forEach(sugestao => {
+    const card = document.createElement('div');
+    card.className = 'sugestao-card';
+    card.innerHTML = `
+      <div class="sugestao-info">
+        <strong class="sugestao-dominio">${sugestao.dominio}</strong>
+        <span class="sugestao-stats">${sugestao.quantidade} emails (${sugestao.porcentagem}%)</span>
+      </div>
+      <button class="btn-sugestao" data-dominio="${sugestao.dominio}" data-quantidade="${sugestao.quantidade}">
+        Criar Regra
+      </button>
+    `;
+    
+    const btnCriar = card.querySelector('.btn-sugestao');
+    btnCriar.addEventListener('click', async () => {
+      await criarRegraDaSugestao(sugestao);
+      card.remove();
+      if (sugestoesLista.children.length === 0) {
+        sugestoesSection.classList.add('hidden');
+      }
+    });
+    
+    sugestoesLista.appendChild(card);
+  });
+}
+
+/**
+ * Cria regra a partir de uma sugestão
+ */
+async function criarRegraDaSugestao(sugestao) {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      acao: 'criarRegraAutomatica',
+      sugestao: sugestao,
+      opcoes: {
+        marcarLido: true,
+        arquivar: false
+      }
+    });
+    
+    if (response.sucesso) {
+      mostrarStatus('Regra criada com sucesso!', 'autenticado');
+      await carregarEstatisticas();
+    } else {
+      alert('Erro ao criar regra: ' + (response.erro || 'Erro desconhecido'));
+    }
+  } catch (error) {
+    console.error('Erro ao criar regra:', error);
+    alert('Erro ao criar regra: ' + error.message);
+  }
+}
+
 // Inicializa quando popup abre
 inicializar();
 
