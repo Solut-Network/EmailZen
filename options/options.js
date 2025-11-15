@@ -985,6 +985,8 @@ async function iniciarAnaliseInteligente() {
     // Cria um listener para atualizar progresso
     progressListener = (request, sender, sendResponse) => {
       if (request.acao === 'analiseProgresso') {
+        console.log('[EmailZen] Recebida mensagem de progresso:', request);
+        
         if (analiseAbortada) {
           // Envia mensagem para abortar
           chrome.runtime.sendMessage({ acao: 'abortarAnalise' }).catch(() => {});
@@ -1000,6 +1002,8 @@ async function iniciarAnaliseInteligente() {
         
         const porcentagem = total > 0 ? Math.round((progressoAtual / total) * 100) : 0;
         
+        console.log(`[EmailZen] Atualizando UI: ${progressoAtual}/${total} (${porcentagem}%) - ${etapa}`);
+        
         progressoBar.style.width = `${porcentagem}%`;
         textoStatus.textContent = etapa || 'Analisando inbox...';
         contadorStatus.textContent = `${progressoAtual}/${total} emails`;
@@ -1012,6 +1016,7 @@ async function iniciarAnaliseInteligente() {
     // Listener para resultado final da análise
     resultadoListener = (request, sender, sendResponse) => {
       if (request.acao === 'analiseConcluida') {
+        console.log('[EmailZen] Recebida mensagem de conclusão:', request);
         if (analiseAbortada) {
           textoStatus.textContent = 'Análise abortada pelo usuário';
           progressoBar.style.width = '0%';

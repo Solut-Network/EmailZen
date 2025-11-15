@@ -517,7 +517,9 @@ async function analisarSugestoesComProgresso(callbackProgresso = null) {
     
     // Analisa remetentes frequentes (limite mínimo: 2 emails, máximo: 20 resultados)
     // Aumentado maxResultados para 20 para mostrar mais sugestões
+    console.log('[EmailZen] Chamando analisarRemetentesFrequentes...');
     const remetentesFrequentes = await analisarRemetentesFrequentes(2, 20, callbackProgresso);
+    console.log(`[EmailZen] analisarRemetentesFrequentes retornou ${remetentesFrequentes?.length || 0} remetentes`);
     
     // Filtra remetentes que já têm regras (verifica domínio raiz)
     const sugestoes = remetentesFrequentes
@@ -559,6 +561,27 @@ async function analisarSugestoesComProgresso(callbackProgresso = null) {
       }));
     
     console.log(`[EmailZen] ${sugestoes.length} sugestões geradas (de ${remetentesFrequentes.length} remetentes frequentes)`);
+    
+    // Debug detalhado
+    if (remetentesFrequentes.length === 0) {
+      console.warn('[EmailZen] Nenhum remetente frequente encontrado após análise!');
+      console.log('[EmailZen] Debug - Verificando possíveis causas:');
+      console.log(`  - Total de não lidas analisadas: ${emailsProcessados || 'N/A'}`);
+      console.log(`  - Domínios únicos encontrados: ${remetentesMap?.size || 'N/A'}`);
+      console.log(`  - Domínios com regras: ${dominiosJaRegrados?.size || 'N/A'}`);
+    } else if (sugestoes.length === 0) {
+      console.warn('[EmailZen] Remetentes frequentes encontrados, mas todos foram filtrados (já têm regras)');
+      console.log('[EmailZen] Primeiros remetentes frequentes (antes do filtro):', remetentesFrequentes.slice(0, 5).map(r => ({
+        dominio: r.dominio,
+        quantidade: r.quantidade,
+        temRegra: r.temRegra
+      })));
+    } else {
+      console.log('[EmailZen] Sugestões geradas com sucesso:', sugestoes.map(s => ({
+        dominio: s.dominio,
+        quantidade: s.quantidade
+      })));
+    }
     
     return sugestoes;
   } catch (error) {
@@ -670,12 +693,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.acao === 'analisarSugestoes') {
+    console.log('[EmailZen] Recebida solicitação de análise de sugestões');
+    
     // Responde imediatamente para evitar timeout
     // A análise continua em background e envia progresso via mensagens
-    sendResponse({ sucesso: true, emAndamento: true });
+    try {
+      sendResponse({ sucesso: true, emAndamento: true });
+      console.log('[EmailZen] Resposta enviada: análise em andamento');
+    } catch (error) {
+      console.error('[EmailZen] Erro ao enviar resposta inicial:', error);
+    }
     
-    // Analisa em background - não depende do popup estar aberto
+    // Retorna false porque a resposta já foi enviada síncronamente
+    // Mas o processamento continua em background
     (async () => {
+      console.log('[EmailZen] Iniciando análise em background...');
       let analiseAbortada = false;
       
       // Listener para verificar se análise foi abortada
@@ -693,7 +725,10 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       
       // Callback de progresso
       const callbackProgresso = (processados, total, etapa) => {
+        console.log(`[EmailZen] Callback progresso chamado: ${processados}/${total} - ${etapa}`);
+        
         if (analiseAbortada) {
+          console.log('[EmailZen] Análise foi abortada, retornando true para parar');
           return true; // Indica abortar
         }
         
@@ -703,16 +738,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         
         // Envia progresso para options page se estiver aberta
         try {
+          console.log(`[EmailZen] Enviando mensagem de progresso: ${progressoAtual}/${total}`);
           chrome.runtime.sendMessage({
             acao: 'analiseProgresso',
             processados: progressoAtual,
             total,
             etapa
-          }).catch(() => {
+          }).catch((err) => {
             // Options page pode não estar aberta, ignora erro
+            console.log('[EmailZen] Erro ao enviar progresso (options page pode estar fechada):', err);
           });
         } catch (e) {
           // Ignora erros de envio
+          console.error('[EmailZen] Erro ao enviar mensagem de progresso:', e);
         }
         
         return analiseAbortada;

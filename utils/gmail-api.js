@@ -467,7 +467,7 @@ function extrairDominioRaiz(dominio) {
  * @param {boolean} usarDominioRaiz - Se true, retorna domínio raiz (sem subdomínios)
  * @returns {string} Domínio (ex: "exemplo.com" ou "a.exemplo.com")
  */
-function extrairDominio(from, usarDominioRaiz = false) {
+export function extrairDominio(from, usarDominioRaiz = false) {
   if (!from || typeof from !== 'string') return '';
   
   // Tenta extrair email primeiro - múltiplos padrões para maior compatibilidade
@@ -522,7 +522,7 @@ function extrairDominio(from, usarDominioRaiz = false) {
  * @param {string} from - Campo From do header
  * @returns {string} Email do remetente
  */
-function extrairEmailRemetente(from) {
+export function extrairEmailRemetente(from) {
   const match = from.match(/<([^>]+)>/) || from.match(/([\w\.-]+@[\w\.-]+\.\w+)/);
   return match ? match[1].toLowerCase() : from.toLowerCase();
 }
@@ -578,7 +578,10 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
     
     if (!resultado.messages || resultado.messages.length === 0) {
       console.log('[EmailZen] Nenhum email encontrado para análise');
-      if (callbackProgresso) callbackProgresso(0, 0, 'Nenhum email encontrado');
+      if (callbackProgresso) {
+        console.log('[EmailZen] Chamando callback com "Nenhum email encontrado"');
+        callbackProgresso(0, 0, 'Nenhum email encontrado');
+      }
       return [];
     }
     
@@ -586,7 +589,10 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
     totalEmails = resultado.messages.length;
     console.log(`[EmailZen] Analisando ${totalEmails} emails...`);
     
-    if (callbackProgresso) callbackProgresso(0, totalEmails, 'Iniciando análise...');
+    if (callbackProgresso) {
+      console.log(`[EmailZen] Chamando callback inicial: 0/${totalEmails} - Iniciando análise...`);
+      callbackProgresso(0, totalEmails, 'Iniciando análise...');
+    }
     
     // Contador de remetentes
     const remetentesMap = new Map();
@@ -806,9 +812,11 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
           totalMensagens = Math.max(totalMensagens, 500);
         }
         
-        remetente.countTotal = totalMensagens;
+        remetente.countTotal = totalMensagens || remetente.countNaoLidas; // Garante que sempre tenha um valor
         remetente.temRegra = false;
         remetentesMap.set(dominio, remetente);
+        
+        console.log(`[EmailZen] Domínio ${dominio}: ${totalMensagens} mensagens totais (${remetente.countNaoLidas} não lidas)`);
         
         dominiosProcessados++;
         
@@ -841,20 +849,38 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
     
     console.log(`[EmailZen] Análise concluída: ${emailsProcessados} não lidas processadas, ${emailsComErro} erros, ${emailsSemDominio} sem domínio`);
     
+    // Debug: mostra todos os remetentes antes do filtro
+    const todosRemetentes = Array.from(remetentesMap.values());
+    console.log(`[EmailZen] Total de remetentes encontrados: ${todosRemetentes.length}`);
+    console.log(`[EmailZen] Remetentes antes do filtro:`, todosRemetentes.slice(0, 10).map(r => ({
+      dominio: r.dominio,
+      countTotal: r.countTotal,
+      countNaoLidas: r.countNaoLidas,
+      temRegra: r.temRegra
+    })));
+    
     // Converte para array e filtra por limite mínimo (usa countTotal que inclui lidas + não lidas)
     // OTIMIZAÇÃO: Filtra também remetentes que já têm regras (não precisa sugerir novamente)
     const remetentesFrequentes = Array.from(remetentesMap.values())
       .filter(r => {
         // Filtra remetentes que já têm regras
         if (r.temRegra) {
+          console.log(`[EmailZen] Remetente ${r.dominio} filtrado: já tem regra`);
           return false;
         }
         // Filtra pelo total (lidas + não lidas)
-        return r.countTotal >= limiteMinimo;
+        const passaFiltro = r.countTotal >= limiteMinimo;
+        if (!passaFiltro) {
+          console.log(`[EmailZen] Remetente ${r.dominio} filtrado: countTotal (${r.countTotal}) < limiteMinimo (${limiteMinimo})`);
+        }
+        return passaFiltro;
       })
       .sort((a, b) => b.countTotal - a.countTotal) // Ordena pelo total
-      .slice(0, maxResultados)
-      .map(r => {
+      .slice(0, maxResultados);
+    
+    console.log(`[EmailZen] Remetentes frequentes após filtro: ${remetentesFrequentes.length}`);
+    
+    const remetentesFrequentesMapeados = remetentesFrequentes.map(r => {
         const total = resultado.messages.length; // Total de não lidas analisadas
         const porcentagem = ((r.countTotal / Math.max(total, 1)) * 100).toFixed(1);
         
@@ -875,10 +901,10 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
         };
       });
     
-    console.log(`[EmailZen] Encontrados ${remetentesFrequentes.length} remetentes frequentes:`, remetentesFrequentes);
+    console.log(`[EmailZen] Encontrados ${remetentesFrequentesMapeados.length} remetentes frequentes:`, remetentesFrequentesMapeados);
     
     // Log detalhado para debug
-    if (remetentesFrequentes.length === 0 && resultado.messages.length > 0) {
+    if (remetentesFrequentesMapeados.length === 0 && resultado.messages.length > 0) {
       console.log('[EmailZen] Debug: Nenhum remetente frequente encontrado, mas há emails. Verificando...');
       // Mostra top 10 domínios encontrados para debug
       const todosDominios = Array.from(remetentesMap.entries())
@@ -894,12 +920,12 @@ export async function analisarRemetentesFrequentes(limiteMinimo = 2, maxResultad
     } else {
       // Mostra estatísticas dos remetentes encontrados
       console.log('[EmailZen] Estatísticas dos remetentes frequentes:');
-      remetentesFrequentes.forEach((r, index) => {
+      remetentesFrequentesMapeados.forEach((r, index) => {
         console.log(`  ${index + 1}. ${r.dominio}: ${r.quantidade} emails (${r.porcentagem}%)`);
       });
     }
     
-    return remetentesFrequentes;
+    return remetentesFrequentesMapeados;
   } catch (error) {
     console.error('[EmailZen] Erro ao analisar remetentes:', error);
     throw error;
