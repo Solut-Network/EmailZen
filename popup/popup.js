@@ -147,19 +147,38 @@ document.getElementById('btn-autenticar')?.addEventListener('click', async () =>
 document.getElementById('btn-processar')?.addEventListener('click', async () => {
   const btn = document.getElementById('btn-processar');
   btn.disabled = true;
-  btn.textContent = 'Processando...';
+  btn.textContent = 'Iniciando...';
   
   try {
-    const response = await chrome.runtime.sendMessage({ acao: 'processarAgora' });
-    if (response.sucesso) {
-      mostrarStatus('Processamento iniciado!', 'autenticado');
-      await carregarEstatisticas();
-    } else {
-      alert('Erro ao processar: ' + (response.erro || 'Erro desconhecido'));
-    }
+    // Envia mensagem e não aguarda resposta - continua em background
+    chrome.runtime.sendMessage({ acao: 'processarAgora' }, (response) => {
+      // Callback opcional - não bloqueia se popup fechar
+      if (chrome.runtime.lastError) {
+        console.log('[EmailZen] Popup fechado, mas processamento continua em background');
+        return;
+      }
+      
+      if (response && response.sucesso) {
+        console.log('[EmailZen] Processamento iniciado com sucesso');
+        // Atualiza estatísticas se popup ainda estiver aberto
+        if (document.getElementById('stat-processados')) {
+          carregarEstatisticas();
+        }
+      }
+    });
+    
+    mostrarStatus('Processamento iniciado em background!', 'autenticado');
+    
+    // Atualiza estatísticas após um pequeno delay
+    setTimeout(async () => {
+      if (document.getElementById('stat-processados')) {
+        await carregarEstatisticas();
+      }
+    }, 2000);
+    
   } catch (error) {
-    console.error('Erro ao processar:', error);
-    alert('Erro ao processar: ' + error.message);
+    console.error('Erro ao iniciar processamento:', error);
+    mostrarStatus('Erro ao iniciar processamento', 'nao-autenticado');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Processar Agora';
@@ -185,24 +204,49 @@ document.getElementById('sugestoes-search')?.addEventListener('input', (e) => {
 document.getElementById('btn-analisar')?.addEventListener('click', async () => {
   const btn = document.getElementById('btn-analisar');
   btn.disabled = true;
-  btn.textContent = 'Analisando...';
+  btn.textContent = 'Iniciando...';
   
   try {
-    const response = await chrome.runtime.sendMessage({ acao: 'analisarSugestoes' });
-    if (response.sucesso && response.sugestoes && response.sugestoes.length > 0) {
-      // Salva as sugestões para persistir entre abas
-      await salvarSugestoes(response.sugestoes);
-      mostrarSugestoes(response.sugestoes);
-      mostrarStatus('Análise concluída!', 'autenticado');
-    } else {
-      const mensagem = response.erro 
-        ? `Erro: ${response.erro}\n\nVerifique o console do Service Worker para mais detalhes.`
-        : 'Nenhuma sugestão encontrada.\n\nIsso pode acontecer se:\n- Não há remetentes com 2+ emails na inbox\n- Todos os remetentes já têm regras criadas\n- A inbox está vazia\n\nVerifique o console do Service Worker (chrome://extensions > Detalhes > Inspecionar visualizações > service-worker) para mais informações.';
-      alert(mensagem);
-    }
+    // Envia mensagem e aguarda resposta, mas continua mesmo se popup fechar
+    chrome.runtime.sendMessage({ acao: 'analisarSugestoes' }, async (response) => {
+      // Callback - continua mesmo se popup fechar
+      if (chrome.runtime.lastError) {
+        console.log('[EmailZen] Popup fechado, mas análise continua em background');
+        return;
+      }
+      
+      try {
+        if (response && response.sucesso && response.sugestoes && response.sugestoes.length > 0) {
+          // Salva as sugestões para persistir entre abas
+          await salvarSugestoes(response.sugestoes);
+          
+          // Atualiza interface se popup ainda estiver aberto
+          if (document.getElementById('sugestoes-lista')) {
+            mostrarSugestoes(response.sugestoes);
+            mostrarStatus('Análise concluída!', 'autenticado');
+          }
+        } else if (response) {
+          // Salva sugestões vazias se não houver resultados
+          await salvarSugestoes([]);
+          
+          // Mostra mensagem apenas se popup ainda estiver aberto
+          if (document.getElementById('sugestoes-lista')) {
+            const mensagem = response.erro 
+              ? `Erro: ${response.erro}\n\nVerifique o console do Service Worker para mais detalhes.`
+              : 'Nenhuma sugestão encontrada.\n\nIsso pode acontecer se:\n- Não há remetentes com 2+ emails na inbox\n- Todos os remetentes já têm regras criadas\n- A inbox está vazia\n\nVerifique o console do Service Worker (chrome://extensions > Detalhes > Inspecionar visualizações > service-worker) para mais informações.';
+            alert(mensagem);
+          }
+        }
+      } catch (error) {
+        console.error('[EmailZen] Erro ao processar resposta da análise:', error);
+      }
+    });
+    
+    mostrarStatus('Análise iniciada em background...', 'autenticado');
+    
   } catch (error) {
-    console.error('Erro ao analisar:', error);
-    alert('Erro ao analisar inbox: ' + error.message + '\n\nVerifique o console do Service Worker para mais detalhes.');
+    console.error('Erro ao iniciar análise:', error);
+    mostrarStatus('Erro ao iniciar análise', 'nao-autenticado');
   } finally {
     btn.disabled = false;
     btn.textContent = '🔍 Analisar Inbox';
@@ -295,34 +339,53 @@ async function limparSugestoesSalvas() {
  */
 async function criarRegraDaSugestao(sugestao) {
   try {
-    const response = await chrome.runtime.sendMessage({
+    // Envia mensagem e continua mesmo se popup fechar
+    chrome.runtime.sendMessage({
       acao: 'criarRegraAutomatica',
       sugestao: sugestao,
       opcoes: {
         marcarLido: true,
         arquivar: false
       }
+    }, async (response) => {
+      // Callback - continua mesmo se popup fechar
+      if (chrome.runtime.lastError) {
+        console.log('[EmailZen] Popup fechado, mas criação de regra continua em background');
+        return;
+      }
+      
+      try {
+        if (response && response.sucesso) {
+          // Remove a sugestão da lista salva
+          const sugestoesAtuais = await obterSugestoes();
+          const sugestoesAtualizadas = sugestoesAtuais.filter(s => s.dominio !== sugestao.dominio);
+          await salvarSugestoes(sugestoesAtualizadas);
+          
+          // Atualiza interface se popup ainda estiver aberto
+          if (document.getElementById('sugestoes-lista')) {
+            // Mantém o filtro de busca se houver
+            const searchInput = document.getElementById('sugestoes-search');
+            const termoBusca = searchInput ? searchInput.value : '';
+            mostrarSugestoes(sugestoesAtualizadas, termoBusca);
+            
+            mostrarStatus('Regra criada com sucesso!', 'autenticado');
+            await carregarEstatisticas();
+          }
+        } else if (response && document.getElementById('sugestoes-lista')) {
+          // Mostra erro apenas se popup ainda estiver aberto
+          alert('Erro ao criar regra: ' + (response.erro || 'Erro desconhecido'));
+        }
+      } catch (error) {
+        console.error('[EmailZen] Erro ao processar resposta da criação de regra:', error);
+      }
     });
     
-    if (response.sucesso) {
-      // Remove a sugestão da lista salva
-      const sugestoesAtuais = await obterSugestoes();
-      const sugestoesAtualizadas = sugestoesAtuais.filter(s => s.dominio !== sugestao.dominio);
-      await salvarSugestoes(sugestoesAtualizadas);
-      
-      // Mantém o filtro de busca se houver
-      const searchInput = document.getElementById('sugestoes-search');
-      const termoBusca = searchInput ? searchInput.value : '';
-      mostrarSugestoes(sugestoesAtualizadas, termoBusca);
-      
-      mostrarStatus('Regra criada com sucesso!', 'autenticado');
-      await carregarEstatisticas();
-    } else {
-      alert('Erro ao criar regra: ' + (response.erro || 'Erro desconhecido'));
-    }
+    // Mostra status imediatamente
+    mostrarStatus('Criando regra em background...', 'autenticado');
+    
   } catch (error) {
-    console.error('Erro ao criar regra:', error);
-    alert('Erro ao criar regra: ' + error.message);
+    console.error('Erro ao iniciar criação de regra:', error);
+    mostrarStatus('Erro ao criar regra', 'nao-autenticado');
   }
 }
 

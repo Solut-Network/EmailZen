@@ -165,27 +165,41 @@ async function executarRegraIndividual(regraId) {
     await inicializarLabelsCache();
     
     // Busca mensagens não lidas na inbox
+    console.log(`[EmailZen] Buscando mensagens para regra ${regraId}...`);
     const resultado = await buscarMensagens({
       query: 'in:inbox is:unread',
       maxResults: 100
     });
     
     if (!resultado.messages || resultado.messages.length === 0) {
+      console.log(`[EmailZen] Nenhuma mensagem encontrada para regra ${regraId}`);
       return { processados: 0, total: 0 };
     }
     
     const messageIds = resultado.messages.map(m => m.id);
+    console.log(`[EmailZen] Processando ${messageIds.length} mensagens para regra ${regraId}...`);
     let processados = 0;
     
-    // Processa mensagens que correspondem à regra
-    for (const messageId of messageIds) {
-      try {
-        const resultadoProcessamento = await processarMensagem(messageId, [regra]);
-        if (resultadoProcessamento.processado) {
-          processados++;
+    // Processa mensagens que correspondem à regra em batches menores para evitar timeout
+    const batchSize = 10;
+    for (let i = 0; i < messageIds.length; i += batchSize) {
+      const batch = messageIds.slice(i, i + batchSize);
+      console.log(`[EmailZen] Processando batch ${Math.floor(i/batchSize) + 1} de ${Math.ceil(messageIds.length/batchSize)} (${batch.length} mensagens)...`);
+      
+      for (const messageId of batch) {
+        try {
+          const resultadoProcessamento = await processarMensagem(messageId, [regra]);
+          if (resultadoProcessamento.processado) {
+            processados++;
+          }
+        } catch (error) {
+          console.error(`Erro ao processar mensagem ${messageId}:`, error);
         }
-      } catch (error) {
-        console.error(`Erro ao processar mensagem ${messageId}:`, error);
+      }
+      
+      // Pequeno delay entre batches para não sobrecarregar a API
+      if (i + batchSize < messageIds.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
     }
     
@@ -195,7 +209,7 @@ async function executarRegraIndividual(regraId) {
       emailsProcessados: emailsProcessados + processados
     });
     
-    console.log(`[EmailZen] Regra ${regraId}: ${processados} mensagens processadas`);
+    console.log(`[EmailZen] Regra ${regraId}: ${processados} mensagens processadas de ${messageIds.length} total`);
     
     return { processados, total: messageIds.length };
     
@@ -333,10 +347,38 @@ async function verificarExclusoes() {
 }
 
 /**
+ * Atualiza alarme de verificação automática baseado na configuração do usuário
+ */
+async function atualizarAlarmeVerificacao(ativa, intervaloMinutos) {
+  // Remove alarme existente
+  await chrome.alarms.clear('processarEmails');
+  
+  if (ativa) {
+    // Cria novo alarme com intervalo configurado
+    chrome.alarms.create('processarEmails', {
+      periodInMinutes: intervaloMinutos
+    });
+    console.log(`[EmailZen] Alarme de verificação automática configurado para ${intervaloMinutos} minutos`);
+  } else {
+    console.log('[EmailZen] Verificação automática desativada');
+  }
+}
+
+/**
+ * Inicializa alarme de verificação automática na instalação/inicialização
+ */
+async function inicializarAlarmeVerificacao() {
+  const { obterConfigVerificacao } = await import('../utils/storage.js');
+  const config = await obterConfigVerificacao();
+  await atualizarAlarmeVerificacao(config.ativa, config.intervaloMinutos);
+}
+
+/**
  * Listener para alarmes do Chrome
  */
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'processarEmails') {
+    console.log('[EmailZen] Alarme disparado: processando emails automaticamente...');
     processarEmails();
   } else if (alarm.name === 'verificarExclusoes') {
     verificarExclusoes();
@@ -449,12 +491,33 @@ async function criarRegraAutomatica(sugestao, opcoes = {}) {
  * Listener para mensagens do content script ou popup
  */
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+  // Handler para ping (verificação de atividade)
+  if (request.acao === 'ping') {
+    sendResponse({ sucesso: true, pong: true });
+    return false; // Resposta síncrona
+  }
+  
   if (request.acao === 'processarAgora') {
-    processarEmails().then(() => {
-      sendResponse({ sucesso: true });
-    }).catch(error => {
-      sendResponse({ sucesso: false, erro: error.message });
-    });
+    // Processa em background - não depende do popup estar aberto
+    (async () => {
+      try {
+        await processarEmails();
+        try {
+          sendResponse({ sucesso: true });
+        } catch (sendError) {
+          // Popup pode ter fechado, mas processamento continua
+          console.log('[EmailZen] Processamento concluído (popup pode ter fechado)');
+        }
+      } catch (error) {
+        console.error('[EmailZen] Erro no processamento:', error);
+        try {
+          sendResponse({ sucesso: false, erro: error.message });
+        } catch (sendError) {
+          // Popup pode ter fechado, mas erro foi logado
+          console.error('[EmailZen] Erro no processamento (popup pode ter fechado):', error);
+        }
+      }
+    })();
     return true; // Indica resposta assíncrona
   }
   
@@ -486,49 +549,109 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   }
   
   if (request.acao === 'analisarSugestoes') {
-    analisarSugestoes().then(sugestoes => {
-      sendResponse({ sucesso: true, sugestoes });
-    }).catch(error => {
-      sendResponse({ sucesso: false, erro: error.message, sugestoes: [] });
-    });
+    // Analisa em background - não depende do popup estar aberto
+    (async () => {
+      try {
+        const sugestoes = await analisarSugestoes();
+        try {
+          sendResponse({ sucesso: true, sugestoes });
+        } catch (sendError) {
+          // Popup pode ter fechado, mas análise continua e salva resultados
+          console.log('[EmailZen] Análise concluída (popup pode ter fechado)');
+          // Salva sugestões mesmo se popup fechou
+          const { salvarSugestoes } = await import('../utils/storage.js');
+          await salvarSugestoes(sugestoes);
+        }
+      } catch (error) {
+        console.error('[EmailZen] Erro na análise:', error);
+        try {
+          sendResponse({ sucesso: false, erro: error.message, sugestoes: [] });
+        } catch (sendError) {
+          // Popup pode ter fechado, mas erro foi logado
+          console.error('[EmailZen] Erro na análise (popup pode ter fechado):', error);
+        }
+      }
+    })();
     return true;
   }
   
   if (request.acao === 'criarRegraAutomatica') {
-    criarRegraAutomatica(request.sugestao, request.opcoes).then(regraId => {
-      sendResponse({ sucesso: true, regraId });
-    }).catch(error => {
-      sendResponse({ sucesso: false, erro: error.message });
-    });
+    // Cria regra em background - não depende do popup estar aberto
+    (async () => {
+      try {
+        const regraId = await criarRegraAutomatica(request.sugestao, request.opcoes);
+        try {
+          sendResponse({ sucesso: true, regraId });
+        } catch (sendError) {
+          // Popup pode ter fechado, mas regra foi criada
+          console.log(`[EmailZen] Regra criada: ${regraId} (popup pode ter fechado)`);
+        }
+      } catch (error) {
+        console.error('[EmailZen] Erro ao criar regra:', error);
+        try {
+          sendResponse({ sucesso: false, erro: error.message });
+        } catch (sendError) {
+          // Popup pode ter fechado, mas erro foi logado
+          console.error('[EmailZen] Erro ao criar regra (popup pode ter fechado):', error);
+        }
+      }
+    })();
     return true;
   }
   
   if (request.acao === 'executarRegra') {
-    executarRegraIndividual(request.regraId).then(resultado => {
-      sendResponse({ 
-        sucesso: true, 
-        processados: resultado.processados,
-        total: resultado.total
-      });
-    }).catch(error => {
-      console.error('[EmailZen] Erro ao executar regra:', error);
-      sendResponse({ sucesso: false, erro: error.message || 'Erro desconhecido' });
-    });
+    // Garante que sempre envia uma resposta
+    console.log(`[EmailZen] Recebida requisição para executar regra: ${request.regraId}`);
+    
+    // Executa de forma assíncrona mas garante resposta
+    (async () => {
+      try {
+        const resultado = await executarRegraIndividual(request.regraId);
+        try {
+          sendResponse({ 
+            sucesso: true, 
+            processados: resultado.processados,
+            total: resultado.total
+          });
+          console.log(`[EmailZen] Resposta enviada com sucesso para regra ${request.regraId}: ${resultado.processados} processados`);
+        } catch (sendError) {
+          console.error('[EmailZen] Erro ao enviar resposta:', sendError);
+        }
+      } catch (error) {
+        console.error('[EmailZen] Erro ao executar regra:', error);
+        try {
+          sendResponse({ 
+            sucesso: false, 
+            erro: error.message || 'Erro desconhecido' 
+          });
+        } catch (sendError) {
+          console.error('[EmailZen] Erro ao enviar resposta de erro:', sendError);
+        }
+      }
+    })();
+    
     return true; // Indica resposta assíncrona
+  }
+  
+  if (request.acao === 'atualizarAlarmeVerificacao') {
+    atualizarAlarmeVerificacao(request.ativa, request.intervaloMinutos).then(() => {
+      sendResponse({ sucesso: true });
+    }).catch(error => {
+      console.error('[EmailZen] Erro ao atualizar alarme:', error);
+      sendResponse({ sucesso: false, erro: error.message });
+    });
+    return true;
   }
 });
 
 /**
  * Inicialização quando extensão é instalada
  */
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener(async () => {
   console.log('[EmailZen] Extensão instalada');
   
-  // Cria alarmes periódicos
-  // Processa emails a cada 30 minutos
-  chrome.alarms.create('processarEmails', {
-    periodInMinutes: 30
-  });
+  // Inicializa alarme de verificação automática baseado na configuração
+  await inicializarAlarmeVerificacao();
   
   // Verifica exclusões uma vez por dia
   chrome.alarms.create('verificarExclusoes', {
@@ -544,8 +667,9 @@ chrome.runtime.onInstalled.addListener(() => {
 /**
  * Processa emails quando extensão é iniciada
  */
-chrome.runtime.onStartup.addListener(() => {
+chrome.runtime.onStartup.addListener(async () => {
   console.log('[EmailZen] Extensão iniciada');
+  await inicializarAlarmeVerificacao();
   processarEmails();
 });
 

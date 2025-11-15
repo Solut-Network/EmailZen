@@ -97,13 +97,35 @@ export async function removerToken() {
  * @param {Object} stats - Estatísticas (emailsProcessados, espacoEconomizado, etc)
  */
 export async function salvarEstatisticas(stats) {
-  const { estatisticas = {} } = await chrome.storage.local.get(['estatisticas']);
-  const novasStats = {
-    ...estatisticas,
-    ...stats,
-    ultimaAtualizacao: Date.now()
-  };
-  await chrome.storage.local.set({ estatisticas: novasStats });
+  try {
+    const { estatisticas = {} } = await chrome.storage.local.get(['estatisticas']);
+    
+    // Preserva valores existentes e atualiza apenas os novos
+    const novasStats = {
+      emailsProcessados: estatisticas.emailsProcessados || 0,
+      emailsExcluidos: estatisticas.emailsExcluidos || 0,
+      espacoEconomizado: estatisticas.espacoEconomizado || 0,
+      ...stats, // Sobrescreve com novos valores
+      ultimaAtualizacao: Date.now()
+    };
+    
+    // Se está incrementando, soma ao valor existente
+    if (stats.emailsProcessados !== undefined && typeof stats.emailsProcessados === 'number') {
+      // Se o valor passado já é um incremento, não precisa somar novamente
+      // (o service worker já faz a soma antes de chamar esta função)
+      novasStats.emailsProcessados = stats.emailsProcessados;
+    }
+    
+    if (stats.emailsExcluidos !== undefined && typeof stats.emailsExcluidos === 'number') {
+      novasStats.emailsExcluidos = stats.emailsExcluidos;
+    }
+    
+    await chrome.storage.local.set({ estatisticas: novasStats });
+    console.log('[EmailZen] Estatísticas salvas:', novasStats);
+  } catch (error) {
+    console.error('[EmailZen] Erro ao salvar estatísticas:', error);
+    throw error;
+  }
 }
 
 /**
@@ -111,13 +133,29 @@ export async function salvarEstatisticas(stats) {
  * @returns {Promise<Object>} Estatísticas
  */
 export async function obterEstatisticas() {
-  const { estatisticas = {} } = await chrome.storage.local.get(['estatisticas']);
-  return {
-    emailsProcessados: estatisticas.emailsProcessados || 0,
-    emailsExcluidos: estatisticas.emailsExcluidos || 0,
-    espacoEconomizado: estatisticas.espacoEconomizado || 0,
-    ultimaAtualizacao: estatisticas.ultimaAtualizacao || null
-  };
+  try {
+    const { estatisticas = {} } = await chrome.storage.local.get(['estatisticas']);
+    
+    // Garante que os valores são números e não são perdidos
+    const stats = {
+      emailsProcessados: Number(estatisticas.emailsProcessados) || 0,
+      emailsExcluidos: Number(estatisticas.emailsExcluidos) || 0,
+      espacoEconomizado: Number(estatisticas.espacoEconomizado) || 0,
+      ultimaAtualizacao: estatisticas.ultimaAtualizacao || null
+    };
+    
+    console.log('[EmailZen] Estatísticas recuperadas do storage:', stats);
+    return stats;
+  } catch (error) {
+    console.error('[EmailZen] Erro ao obter estatísticas:', error);
+    // Retorna valores padrão em caso de erro
+    return {
+      emailsProcessados: 0,
+      emailsExcluidos: 0,
+      espacoEconomizado: 0,
+      ultimaAtualizacao: null
+    };
+  }
 }
 
 /**
@@ -193,5 +231,31 @@ export async function obterSugestoes() {
  */
 export async function limparSugestoes() {
   await chrome.storage.local.remove(['sugestoesInteligentes', 'sugestoesSalvasEm']);
+}
+
+/**
+ * Salva configurações de verificação automática
+ * @param {Object} config - Configurações (ativa, intervaloMinutos)
+ */
+export async function salvarConfigVerificacao(config) {
+  await chrome.storage.local.set({ 
+    configVerificacao: {
+      ativa: config.ativa !== undefined ? config.ativa : true,
+      intervaloMinutos: config.intervaloMinutos || 5,
+      atualizadoEm: Date.now()
+    }
+  });
+}
+
+/**
+ * Obtém configurações de verificação automática
+ * @returns {Promise<Object>} Configurações (ativa, intervaloMinutos)
+ */
+export async function obterConfigVerificacao() {
+  const { configVerificacao } = await chrome.storage.local.get(['configVerificacao']);
+  return {
+    ativa: configVerificacao?.ativa !== undefined ? configVerificacao.ativa : true,
+    intervaloMinutos: configVerificacao?.intervaloMinutos || 5
+  };
 }
 

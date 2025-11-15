@@ -2,7 +2,7 @@
  * Options Page Script - Gerenciamento de regras
  */
 
-import { obterRegras, salvarRegra, removerRegra, toggleRegra, obterEstatisticas } from '../utils/storage.js';
+import { obterRegras, salvarRegra, removerRegra, toggleRegra, obterEstatisticas, salvarConfigVerificacao, obterConfigVerificacao } from '../utils/storage.js';
 
 let regraEditando = null;
 let regrasSelecionadas = new Set();
@@ -22,6 +22,7 @@ async function inicializar() {
   
   await carregarRegras();
   await carregarEstatisticas();
+  await carregarConfigVerificacao();
   
   // Event listeners
   document.getElementById('btn-executar-regras').addEventListener('click', () => {
@@ -60,6 +61,15 @@ async function inicializar() {
     deselecionarTodasRegras();
   });
   
+  // Checkbox do cabeçalho para selecionar todas
+  document.getElementById('checkbox-selecionar-todas')?.addEventListener('change', (e) => {
+    if (e.target.checked) {
+      selecionarTodasRegras();
+    } else {
+      deselecionarTodasRegras();
+    }
+  });
+  
   document.getElementById('btn-executar-selecionadas')?.addEventListener('click', () => {
     executarRegrasSelecionadas();
   });
@@ -71,6 +81,9 @@ async function inicializar() {
   document.getElementById('btn-excluir-selecionadas')?.addEventListener('click', () => {
     excluirRegrasSelecionadas();
   });
+  
+  // Botão salvar configurações de verificação
+  document.getElementById('btn-salvar-config')?.addEventListener('click', salvarConfigVerificacaoForm);
 }
 
 /**
@@ -162,35 +175,33 @@ function criarCardRegra(regra) {
   }
   
   card.innerHTML = `
-    <div class="regra-linha">
-      <div class="regra-linha-checkbox">
-        <input 
-          type="checkbox" 
-          class="regra-checkbox" 
-          data-regra-id="${regra.id}"
-          ${isSelecionada ? 'checked' : ''}
-        >
-      </div>
-      <div class="regra-linha-nome">
-        <span class="regra-nome">${regra.nome}</span>
-        <span class="regra-status ${regra.ativa ? 'ativa' : 'inativa'}">
-          ${regra.ativa ? 'Ativa' : 'Inativa'}
-        </span>
-        <span class="regra-exec-status hidden" data-status=""></span>
-      </div>
-      <div class="regra-linha-condicoes">
-        ${condicoes.length > 0 ? condicoes.join(', ') : '-'}
-      </div>
-      <div class="regra-linha-acoes">
-        ${acoes.length > 0 ? acoes.join(', ') : '-'}
-      </div>
-      <div class="regra-linha-botoes">
-        <button class="btn-secondary btn-sm btn-editar" data-id="${regra.id}" title="Editar">✏️</button>
-        <button class="btn-secondary btn-sm btn-toggle" data-id="${regra.id}" data-ativa="${regra.ativa}" title="${regra.ativa ? 'Desativar' : 'Ativar'}">
-          ${regra.ativa ? '⏸️' : '▶️'}
-        </button>
-        <button class="btn-danger btn-sm btn-excluir" data-id="${regra.id}" title="Excluir">🗑️</button>
-      </div>
+    <div class="regra-linha-checkbox">
+      <input 
+        type="checkbox" 
+        class="regra-checkbox" 
+        data-regra-id="${regra.id}"
+        ${isSelecionada ? 'checked' : ''}
+      >
+    </div>
+    <div class="regra-linha-nome">
+      <span class="regra-nome">${regra.nome}</span>
+      <span class="regra-status ${regra.ativa ? 'ativa' : 'inativa'}">
+        ${regra.ativa ? 'Ativa' : 'Inativa'}
+      </span>
+      <span class="regra-exec-status hidden" data-status=""></span>
+    </div>
+    <div class="regra-linha-condicoes">
+      ${condicoes.length > 0 ? condicoes.join(', ') : '-'}
+    </div>
+    <div class="regra-linha-acoes">
+      ${acoes.length > 0 ? acoes.join(', ') : '-'}
+    </div>
+    <div class="regra-linha-botoes">
+      <button class="btn-secondary btn-sm btn-editar" data-id="${regra.id}" title="Editar">✏️</button>
+      <button class="btn-secondary btn-sm btn-toggle" data-id="${regra.id}" data-ativa="${regra.ativa}" title="${regra.ativa ? 'Desativar' : 'Ativar'}">
+        ${regra.ativa ? '⏸️' : '▶️'}
+      </button>
+      <button class="btn-danger btn-sm btn-excluir" data-id="${regra.id}" title="Excluir">🗑️</button>
     </div>
   `;
   
@@ -207,6 +218,9 @@ function criarCardRegra(regra) {
       atualizarSelecao();
     });
   }
+  
+  // Atualiza checkbox do cabeçalho quando uma regra é selecionada/deselecionada
+  atualizarCheckboxHeader();
   
   // Event listeners
   card.querySelector('.btn-editar').addEventListener('click', () => {
@@ -365,11 +379,108 @@ async function excluirRegra(regraId) {
 async function carregarEstatisticas() {
   try {
     const stats = await obterEstatisticas();
-    document.getElementById('stat-processados').textContent = stats.emailsProcessados || 0;
-    document.getElementById('stat-excluidos').textContent = stats.emailsExcluidos || 0;
+    
+    // Carrega estatísticas salvas do storage
+    const statProcessados = document.getElementById('stat-processados');
+    const statExcluidos = document.getElementById('stat-excluidos');
+    const statRegras = document.getElementById('stat-regras');
+    
+    if (statProcessados) {
+      statProcessados.textContent = stats.emailsProcessados || 0;
+    }
+    
+    if (statExcluidos) {
+      statExcluidos.textContent = stats.emailsExcluidos || 0;
+    }
+    
+    // Atualiza contador de regras ativas (calculado dinamicamente)
+    if (statRegras) {
+      const regras = await obterRegras();
+      const regrasAtivas = regras.filter(r => r.ativa).length;
+      statRegras.textContent = regrasAtivas;
+    }
+    
+    console.log('[EmailZen] Estatísticas carregadas:', {
+      processados: stats.emailsProcessados || 0,
+      excluidos: stats.emailsExcluidos || 0
+    });
   } catch (error) {
     console.error('Erro ao carregar estatísticas:', error);
+    // Em caso de erro, define valores padrão
+    const statProcessados = document.getElementById('stat-processados');
+    const statExcluidos = document.getElementById('stat-excluidos');
+    if (statProcessados) statProcessados.textContent = '0';
+    if (statExcluidos) statExcluidos.textContent = '0';
   }
+}
+
+/**
+ * Verifica se o service worker está ativo
+ */
+async function verificarServiceWorker() {
+  try {
+    const response = await enviarMensagemComRetry({ acao: 'ping' }, 1);
+    return response && response.pong === true;
+  } catch (error) {
+    return false;
+  }
+}
+
+/**
+ * Envia mensagem ao service worker com retry e tratamento de erros
+ */
+async function enviarMensagemComRetry(mensagem, maxTentativas = 2) {
+  let tentativas = 0;
+  let ultimoErro = null;
+  
+  while (tentativas < maxTentativas) {
+    try {
+      // Verifica se há erro do Chrome runtime
+      if (chrome.runtime.lastError) {
+        throw new Error(chrome.runtime.lastError.message);
+      }
+      
+      // Cria uma promise com timeout maior (processamento pode demorar)
+      const messagePromise = chrome.runtime.sendMessage(mensagem);
+      
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Timeout: Service worker não respondeu em 60 segundos. O processamento pode estar demorando muito.')), 60000)
+      );
+      
+      const response = await Promise.race([messagePromise, timeoutPromise]);
+      
+      // Verifica se a resposta foi recebida
+      if (!response) {
+        throw new Error('Nenhuma resposta do service worker');
+      }
+      
+      return response;
+      
+    } catch (error) {
+      tentativas++;
+      ultimoErro = error;
+      console.error(`[Tentativa ${tentativas}/${maxTentativas}] Erro ao enviar mensagem:`, error);
+      
+      // Se é erro de runtime do Chrome, tenta aguardar e tentar novamente
+      if (error.message.includes('Extension context invalidated') || 
+          error.message.includes('message port closed') ||
+          error.message.includes('Could not establish connection')) {
+        
+        // Tenta aguardar um pouco e tentar novamente
+        if (tentativas < maxTentativas) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          continue;
+        }
+      }
+      
+      // Se esgotou as tentativas
+      if (tentativas >= maxTentativas) {
+        throw ultimoErro;
+      }
+    }
+  }
+  
+  throw ultimoErro || new Error('Erro desconhecido ao enviar mensagem');
 }
 
 /**
@@ -382,6 +493,13 @@ async function executarRegras() {
   
   if (regrasAtivas.length === 0) {
     alert('Nenhuma regra ativa para executar.');
+    return;
+  }
+  
+  // Verifica se o service worker está ativo
+  const swAtivo = await verificarServiceWorker();
+  if (!swAtivo) {
+    alert('Service worker não está ativo. Por favor, recarregue a extensão em chrome://extensions/ e tente novamente.');
     return;
   }
   
@@ -413,32 +531,28 @@ async function executarRegras() {
         }
       }
       
-      // Executa a regra com timeout
+      // Executa a regra usando função auxiliar com retry
       let response;
       try {
-        // Cria uma promise com timeout
-        const messagePromise = chrome.runtime.sendMessage({
+        response = await enviarMensagemComRetry({
           acao: 'executarRegra',
           regraId: regra.id
         });
-        
-        const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Timeout: Service worker não respondeu')), 30000)
-        );
-        
-        response = await Promise.race([messagePromise, timeoutPromise]);
-        
-        // Verifica se a resposta foi recebida
-        if (!response) {
-          throw new Error('Nenhuma resposta do service worker');
-        }
       } catch (error) {
         console.error(`Erro ao executar regra ${regra.id}:`, error);
         if (card && statusEl) {
           statusEl.classList.remove('executando');
           statusEl.classList.add('erro');
           statusEl.setAttribute('data-status', 'erro');
-          statusEl.innerHTML = `❌ Erro: ${error.message || 'Erro desconhecido'}`;
+          
+          let mensagemErro = error.message || 'Erro desconhecido';
+          if (mensagemErro.includes('Timeout')) {
+            mensagemErro = 'Timeout: Service worker não respondeu. Tente recarregar a extensão.';
+          } else if (mensagemErro.includes('Extension context') || mensagemErro.includes('message port')) {
+            mensagemErro = 'Service worker inativo. Recarregue a extensão em chrome://extensions/';
+          }
+          
+          statusEl.innerHTML = `❌ Erro: ${mensagemErro}`;
         }
         continue; // Pula para próxima regra
       }
@@ -464,12 +578,26 @@ async function executarRegras() {
     // Atualiza estatísticas
     await carregarEstatisticas();
     
+    // Conta quantas regras foram executadas com sucesso
+    const regrasComSucesso = document.querySelectorAll('.regra-exec-status.concluida').length;
+    const regrasComErro = document.querySelectorAll('.regra-exec-status.erro').length;
+    
     // Mostra mensagem de conclusão
-    alert(`Execução concluída! ${regrasAtivas.length} regra(s) processada(s).`);
+    let mensagem = `Execução concluída!\n\n`;
+    mensagem += `✅ ${regrasComSucesso} regra(s) executada(s) com sucesso\n`;
+    if (regrasComErro > 0) {
+      mensagem += `❌ ${regrasComErro} regra(s) com erro\n`;
+      mensagem += `\nSe houver erros de "Service worker não respondeu", recarregue a extensão em chrome://extensions/`;
+    }
+    alert(mensagem);
     
   } catch (error) {
     console.error('Erro ao executar regras:', error);
-    alert('Erro ao executar regras: ' + error.message);
+    let mensagemErro = error.message || 'Erro desconhecido';
+    if (mensagemErro.includes('Extension context') || mensagemErro.includes('message port')) {
+      mensagemErro = 'Service worker inativo. Por favor, recarregue a extensão em chrome://extensions/';
+    }
+    alert('Erro ao executar regras: ' + mensagemErro);
   } finally {
     // Reabilita botão
     btnExecutar.disabled = false;
@@ -490,17 +618,51 @@ function atualizarSelecao() {
   } else {
     selecaoDiv?.classList.add('hidden');
   }
+  
+  atualizarCheckboxHeader();
+}
+
+/**
+ * Atualiza estado do checkbox do cabeçalho
+ */
+function atualizarCheckboxHeader() {
+  const checkboxHeader = document.getElementById('checkbox-selecionar-todas');
+  if (!checkboxHeader) return;
+  
+  const checkboxesRegras = document.querySelectorAll('.regra-checkbox[data-regra-id]');
+  const totalRegras = checkboxesRegras.length;
+  const selecionadas = Array.from(checkboxesRegras).filter(cb => cb.checked).length;
+  
+  if (totalRegras === 0) {
+    checkboxHeader.checked = false;
+    checkboxHeader.indeterminate = false;
+  } else if (selecionadas === totalRegras) {
+    checkboxHeader.checked = true;
+    checkboxHeader.indeterminate = false;
+  } else if (selecionadas > 0) {
+    checkboxHeader.checked = false;
+    checkboxHeader.indeterminate = true;
+  } else {
+    checkboxHeader.checked = false;
+    checkboxHeader.indeterminate = false;
+  }
 }
 
 /**
  * Seleciona todas as regras visíveis
  */
 function selecionarTodasRegras() {
-  document.querySelectorAll('.regra-checkbox').forEach(checkbox => {
+  const checkboxHeader = document.getElementById('checkbox-selecionar-todas');
+  document.querySelectorAll('.regra-checkbox[data-regra-id]').forEach(checkbox => {
     const regraId = checkbox.getAttribute('data-regra-id');
-    checkbox.checked = true;
-    regrasSelecionadas.add(regraId);
+    if (regraId) {
+      checkbox.checked = true;
+      regrasSelecionadas.add(regraId);
+    }
   });
+  if (checkboxHeader) {
+    checkboxHeader.checked = true;
+  }
   atualizarSelecao();
 }
 
@@ -508,10 +670,14 @@ function selecionarTodasRegras() {
  * Deseleciona todas as regras
  */
 function deselecionarTodasRegras() {
-  document.querySelectorAll('.regra-checkbox').forEach(checkbox => {
+  const checkboxHeader = document.getElementById('checkbox-selecionar-todas');
+  document.querySelectorAll('.regra-checkbox[data-regra-id]').forEach(checkbox => {
     checkbox.checked = false;
   });
   regrasSelecionadas.clear();
+  if (checkboxHeader) {
+    checkboxHeader.checked = false;
+  }
   atualizarSelecao();
 }
 
@@ -521,6 +687,13 @@ function deselecionarTodasRegras() {
 async function executarRegrasSelecionadas() {
   if (regrasSelecionadas.size === 0) {
     alert('Nenhuma regra selecionada.');
+    return;
+  }
+  
+  // Verifica se o service worker está ativo
+  const swAtivo = await verificarServiceWorker();
+  if (!swAtivo) {
+    alert('Service worker não está ativo. Por favor, recarregue a extensão em chrome://extensions/ e tente novamente.');
     return;
   }
   
@@ -544,7 +717,7 @@ async function executarRegrasSelecionadas() {
     }
     
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await enviarMensagemComRetry({
         acao: 'executarRegra',
         regraId: regra.id
       });
@@ -564,7 +737,15 @@ async function executarRegrasSelecionadas() {
       if (statusEl) {
         statusEl.classList.remove('executando');
         statusEl.classList.add('erro');
-        statusEl.innerHTML = `❌ Erro: ${error.message}`;
+        
+        let mensagemErro = error.message || 'Erro desconhecido';
+        if (mensagemErro.includes('Timeout')) {
+          mensagemErro = 'Timeout: Service worker não respondeu';
+        } else if (mensagemErro.includes('Extension context') || mensagemErro.includes('message port')) {
+          mensagemErro = 'Service worker inativo. Recarregue a extensão.';
+        }
+        
+        statusEl.innerHTML = `❌ Erro: ${mensagemErro}`;
       }
     }
     
@@ -617,6 +798,125 @@ async function excluirRegrasSelecionadas() {
   regrasSelecionadas.clear();
   await carregarRegras(document.getElementById('regras-search')?.value || '');
   atualizarSelecao();
+}
+
+/**
+ * Carrega configurações de verificação automática
+ */
+async function carregarConfigVerificacao() {
+  const config = await obterConfigVerificacao();
+  
+  const checkboxAtiva = document.getElementById('config-verificacao-ativa');
+  const inputIntervalo = document.getElementById('config-intervalo');
+  
+  if (checkboxAtiva) {
+    checkboxAtiva.checked = config.ativa;
+  }
+  
+  if (inputIntervalo) {
+    inputIntervalo.value = config.intervaloMinutos;
+  }
+  
+  await atualizarStatusVerificacao();
+  
+  // Atualiza status a cada minuto
+  setInterval(atualizarStatusVerificacao, 60000);
+}
+
+/**
+ * Atualiza status da verificação automática
+ */
+async function atualizarStatusVerificacao() {
+  const statusText = document.getElementById('config-status-text');
+  const proximaVerificacao = document.getElementById('config-proxima-verificacao');
+  
+  if (!statusText || !proximaVerificacao) return;
+  
+  try {
+    // Verifica se há alarme configurado
+    const alarme = await chrome.alarms.get('processarEmails');
+    const config = await obterConfigVerificacao();
+    
+    if (alarme && config.ativa) {
+      statusText.textContent = 'Ativa';
+      statusText.className = 'status-value status-ativa';
+      
+      // Calcula próxima verificação
+      const agora = Date.now();
+      const proxima = alarme.scheduledTime;
+      const minutosRestantes = Math.ceil((proxima - agora) / 1000 / 60);
+      
+      if (minutosRestantes <= 0) {
+        proximaVerificacao.textContent = 'Em breve...';
+      } else if (minutosRestantes === 1) {
+        proximaVerificacao.textContent = 'Em 1 minuto';
+      } else {
+        proximaVerificacao.textContent = `Em ${minutosRestantes} minutos`;
+      }
+    } else {
+      statusText.textContent = 'Inativa';
+      statusText.className = 'status-value status-inativa';
+      proximaVerificacao.textContent = '-';
+    }
+  } catch (error) {
+    console.error('Erro ao atualizar status:', error);
+    statusText.textContent = 'Erro ao verificar';
+    proximaVerificacao.textContent = '-';
+  }
+}
+
+/**
+ * Salva configurações de verificação automática
+ */
+async function salvarConfigVerificacaoForm() {
+  const checkboxAtiva = document.getElementById('config-verificacao-ativa');
+  const inputIntervalo = document.getElementById('config-intervalo');
+  const btnSalvar = document.getElementById('btn-salvar-config');
+  
+  if (!checkboxAtiva || !inputIntervalo || !btnSalvar) return;
+  
+  const ativa = checkboxAtiva.checked;
+  const intervaloMinutos = parseInt(inputIntervalo.value, 10);
+  
+  // Validação
+  if (isNaN(intervaloMinutos) || intervaloMinutos < 1 || intervaloMinutos > 1440) {
+    alert('Por favor, insira um intervalo válido entre 1 e 1440 minutos.');
+    return;
+  }
+  
+  // Desabilita botão durante salvamento
+  btnSalvar.disabled = true;
+  btnSalvar.innerHTML = '<span class="btn-icon">⏳</span> Salvando...';
+  
+  try {
+    // Salva configuração
+    await salvarConfigVerificacao({
+      ativa,
+      intervaloMinutos
+    });
+    
+    // Envia mensagem para service worker atualizar o alarme
+    try {
+      await enviarMensagemComRetry({
+        acao: 'atualizarAlarmeVerificacao',
+        ativa,
+        intervaloMinutos
+      });
+      
+      await atualizarStatusVerificacao();
+      
+      alert('Configurações salvas com sucesso!');
+    } catch (error) {
+      console.error('Erro ao atualizar alarme:', error);
+      alert('Configurações salvas, mas houve um erro ao atualizar o alarme. Recarregue a extensão.');
+    }
+  } catch (error) {
+    console.error('Erro ao salvar configurações:', error);
+    alert('Erro ao salvar configurações: ' + error.message);
+  } finally {
+    btnSalvar.disabled = false;
+    btnSalvar.innerHTML = '<span class="btn-icon">💾</span> Salvar Configurações';
+  }
 }
 
 // Inicializa quando página carrega

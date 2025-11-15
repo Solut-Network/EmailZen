@@ -53,6 +53,43 @@ body {
   font-size: 15px;
   color: #5f6368;
   font-weight: 400;
+  margin-bottom: 8px;
+}
+
+.header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #5f6368;
+  margin-top: 4px;
+}
+
+.header-meta .author {
+  color: #5f6368;
+}
+
+.header-meta .author strong {
+  color: #202124;
+  font-weight: 500;
+}
+
+.header-meta .separator {
+  color: #dadce0;
+}
+
+.github-link {
+  color: #1a73e8;
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.2s;
+}
+
+.github-link:hover {
+  color: #1557b0;
+  text-decoration: underline;
 }
 
 .content {
@@ -255,6 +292,30 @@ body {
   letter-spacing: 0.5px;
   border-bottom: 2px solid #e8eaed;
   border-radius: 8px 8px 0 0;
+  box-sizing: border-box;
+}
+
+.header-checkbox {
+  min-width: 40px;
+  display: flex;
+  justify-content: center;
+}
+
+.header-nome {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.header-condicoes,
+.header-acoes {
+  min-width: 0;
+  max-width: 200px;
+  overflow: hidden;
+}
+
+.header-botoes {
+  min-width: 120px;
+  text-align: right;
 }
 
 #regras-lista-container {
@@ -282,6 +343,8 @@ body {
   background: white;
   transition: all 0.2s ease;
   border-bottom: 1px solid #f0f0f0;
+  min-height: 48px;
+  box-sizing: border-box;
 }
 
 @media (max-width: 1200px) {
@@ -308,6 +371,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  min-width: 40px;
 }
 
 .regra-checkbox {
@@ -323,6 +387,7 @@ body {
   gap: 8px;
   flex-wrap: wrap;
   min-width: 0;
+  overflow: hidden;
 }
 
 .regra-nome {
@@ -420,6 +485,8 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.4;
+  min-width: 0;
+  max-width: 200px;
 }
 
 .regra-linha-botoes {
@@ -427,6 +494,7 @@ body {
   gap: 6px;
   align-items: center;
   justify-content: flex-end;
+  min-width: 120px;
 }
 
 .regra-linha-botoes button {
@@ -687,5 +755,108 @@ body {
   0%, 20% { content: '.'; }
   40% { content: '..'; }
   60%, 100% { content: '...'; }
+}
+
+/* Configurações de Verificação Automática */
+.config-container {
+  padding: 20px;
+}
+
+.config-item {
+  margin-bottom: 24px;
+}
+
+.config-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.config-label-text {
+  display: block;
+  font-size: 14px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 8px;
+}
+
+.config-checkbox {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: #4a90e2;
+}
+
+.config-input {
+  width: 100%;
+  max-width: 200px;
+  padding: 10px 14px;
+  font-size: 14px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+}
+
+.config-input:focus {
+  outline: none;
+  border-color: #4a90e2;
+  box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.1);
+}
+
+.config-desc {
+  font-size: 13px;
+  color: #7f8c8d;
+  margin-top: 6px;
+  line-height: 1.5;
+}
+
+.config-status {
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8ecf1 100%);
+  border-radius: 12px;
+  padding: 16px;
+  margin: 20px 0;
+  border: 1px solid #e0e0e0;
+}
+
+.status-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.status-item:last-child {
+  margin-bottom: 0;
+}
+
+.status-label {
+  font-weight: 600;
+  color: #34495e;
+  min-width: 140px;
+}
+
+.status-value {
+  font-weight: 500;
+  color: #2c3e50;
+}
+
+.status-value.status-ativa {
+  color: #27ae60;
+}
+
+.status-value.status-inativa {
+  color: #e74c3c;
+}
+
+#btn-salvar-config {
+  margin-top: 20px;
+  width: 100%;
+  max-width: 300px;
 }
 
