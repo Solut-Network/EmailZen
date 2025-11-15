@@ -26,6 +26,13 @@ build/
 .env
 .env.local
 
+# Credenciais OAuth e secrets (NUNCA commitar!)
+client_secret_*.json
+*client_secret*.json
+*credentials*.json
+*.pem
+*.key
+
 # Arquivos Python
 __pycache__/
 *.pyc

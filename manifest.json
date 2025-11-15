@@ -13,7 +13,7 @@
     "https://www.googleapis.com/*"
   ],
   "oauth2": {
-    "client_id": "SEU_CLIENT_ID_AQUI.apps.googleusercontent.com",
+    "client_id": "804214131960-upcaebv194hkljrsfkomk5trptvgcu67.apps.googleusercontent.com",
     "scopes": [
       "https://www.googleapis.com/auth/gmail.modify",
       "https://www.googleapis.com/auth/gmail.labels",
