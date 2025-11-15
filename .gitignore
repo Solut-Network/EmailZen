@@ -48,3 +48,15 @@ __pycache__/
 *.bak
 *.backup
 
+# Logos e imagens (não commitar)
+logos/*.png
+logos/*.jpg
+logos/*.jpeg
+logos/*.svg
+logos/*.gif
+logos/*.webp
+imagens/
+assets/logos/
+assets/imagens/
+*.logo.*
+

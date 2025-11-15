@@ -10,6 +10,14 @@ let regraEditando = null;
  * Inicializa a página
  */
 async function inicializar() {
+  // Trata erro de carregamento da logo
+  const logoImg = document.querySelector('.logo-solut');
+  if (logoImg) {
+    logoImg.onerror = function() {
+      this.style.display = 'none';
+    };
+  }
+  
   await carregarRegras();
   await carregarEstatisticas();
   

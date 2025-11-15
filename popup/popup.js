@@ -13,6 +13,14 @@ let autenticado = false;
 async function inicializar() {
   mostrarLoading(true);
   
+  // Trata erro de carregamento da logo
+  const logoImg = document.getElementById('logo-solut');
+  if (logoImg) {
+    logoImg.onerror = function() {
+      this.style.display = 'none';
+    };
+  }
+  
   try {
     const token = await obterToken();
     autenticado = !!token;
