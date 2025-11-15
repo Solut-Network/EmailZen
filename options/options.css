@@ -860,3 +860,146 @@ body {
   max-width: 300px;
 }
 
+/* Busca Inteligente */
+.analise-container {
+  padding: 20px;
+}
+
+.analise-status {
+  background: linear-gradient(135deg, #e8f0fe 0%, #f1f8ff 100%);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+  border: 1px solid #c3d9ff;
+}
+
+.analise-progresso {
+  width: 100%;
+  height: 8px;
+  background: #e0e0e0;
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.analise-progresso-bar {
+  height: 100%;
+  background: linear-gradient(90deg, #4a90e2 0%, #357abd 100%);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.analise-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 14px;
+  color: #2c3e50;
+}
+
+#analise-texto {
+  font-weight: 600;
+}
+
+#analise-contador {
+  color: #5f6368;
+  font-size: 13px;
+}
+
+.analise-resultados {
+  margin-top: 20px;
+}
+
+.analise-resultados h3 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 16px;
+}
+
+.analise-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sugestao-card-opcoes {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px;
+  background: white;
+  border-radius: 8px;
+  border: 1px solid #dadce0;
+  transition: all 0.3s ease;
+}
+
+.sugestao-card-opcoes:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border-color: #4a90e2;
+}
+
+.sugestao-info-opcoes {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.sugestao-dominio-opcoes {
+  font-size: 15px;
+  font-weight: 600;
+  color: #202124;
+  display: block;
+}
+
+.sugestao-subdominios-opcoes {
+  display: block;
+  font-size: 12px;
+  color: #5f6368;
+  font-style: italic;
+  margin-top: 2px;
+}
+
+.sugestao-stats-opcoes {
+  font-size: 13px;
+  color: #5f6368;
+}
+
+.btn-sugestao-opcoes {
+  padding: 8px 16px;
+  background: #4a90e2;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.btn-sugestao-opcoes:hover {
+  background: #357abd;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(74, 144, 226, 0.3);
+}
+
+.btn-sugestao-opcoes:active {
+  transform: translateY(0);
+}
+
+.analise-vazia {
+  text-align: center;
+  padding: 40px 20px;
+  color: #5f6368;
+  font-size: 14px;
+}
+
+.analise-vazia.hidden,
+.analise-status.hidden,
+.analise-resultados.hidden {
+  display: none;
+}
+

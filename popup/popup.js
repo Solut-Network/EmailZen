@@ -299,9 +299,17 @@ function mostrarSugestoes(sugestoes, termoBusca = '') {
       const card = document.createElement('div');
       card.className = 'sugestao-card';
       card.setAttribute('data-dominio', sugestao.dominio);
+      // Mostra informação sobre subdomínios se houver
+      const infoSubdominios = sugestao.temSubdominios && sugestao.exemploSubdominios
+        ? `<span class="sugestao-subdominios" title="Inclui subdomínios: ${sugestao.subdominios.join(', ')}">${sugestao.exemploSubdominios}</span>`
+        : '';
+      
       card.innerHTML = `
         <div class="sugestao-info">
-          <strong class="sugestao-dominio">${sugestao.dominio}</strong>
+          <div>
+            <strong class="sugestao-dominio">${sugestao.dominio}</strong>
+            ${infoSubdominios}
+          </div>
           <span class="sugestao-stats">${sugestao.quantidade} emails (${sugestao.porcentagem}%)</span>
         </div>
         <button class="btn-sugestao" data-dominio="${sugestao.dominio}" data-quantidade="${sugestao.quantidade}">

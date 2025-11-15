@@ -3,7 +3,7 @@
  * Processa emails automaticamente e gerencia exclusões
  */
 
-import { obterRegras, salvarEstatisticas, adicionarHistorico, salvarRegra } from '../utils/storage.js';
+import { obterRegras, salvarEstatisticas, adicionarHistorico, salvarRegra, obterConfigVerificacao, salvarSugestoes } from '../utils/storage.js';
 import { 
   buscarMensagens, 
   obterMensagem, 
@@ -368,20 +368,53 @@ async function atualizarAlarmeVerificacao(ativa, intervaloMinutos) {
  * Inicializa alarme de verificação automática na instalação/inicialização
  */
 async function inicializarAlarmeVerificacao() {
-  const { obterConfigVerificacao } = await import('../utils/storage.js');
-  const config = await obterConfigVerificacao();
-  await atualizarAlarmeVerificacao(config.ativa, config.intervaloMinutos);
+  try {
+    // Usa import estático (já importado no topo do arquivo)
+    const config = await obterConfigVerificacao();
+    
+    console.log(`[EmailZen] Inicializando alarme de verificação: ${config.ativa ? 'Ativo' : 'Inativo'}, intervalo: ${config.intervaloMinutos} minutos`);
+    
+    await atualizarAlarmeVerificacao(config.ativa, config.intervaloMinutos);
+    
+    // Verifica se o alarme foi criado corretamente
+    if (config.ativa) {
+      const alarme = await chrome.alarms.get('processarEmails');
+      if (alarme) {
+        console.log(`[EmailZen] Alarme configurado com sucesso. Próxima execução em ${Math.ceil((alarme.scheduledTime - Date.now()) / 1000 / 60)} minutos`);
+      } else {
+        console.warn('[EmailZen] Alarme não foi criado, mas deveria estar ativo');
+      }
+    }
+  } catch (error) {
+    console.error('[EmailZen] Erro ao inicializar alarme de verificação:', error);
+    // Em caso de erro, cria alarme padrão (5 minutos)
+    try {
+      await atualizarAlarmeVerificacao(true, 5);
+      console.log('[EmailZen] Alarme padrão criado (5 minutos) devido a erro na configuração');
+    } catch (fallbackError) {
+      console.error('[EmailZen] Erro ao criar alarme padrão:', fallbackError);
+    }
+  }
 }
 
 /**
  * Listener para alarmes do Chrome
  */
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === 'processarEmails') {
-    console.log('[EmailZen] Alarme disparado: processando emails automaticamente...');
-    processarEmails();
-  } else if (alarm.name === 'verificarExclusoes') {
-    verificarExclusoes();
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  try {
+    if (alarm.name === 'processarEmails') {
+      console.log('[EmailZen] Alarme disparado: processando emails automaticamente...');
+      await processarEmails();
+      console.log('[EmailZen] Processamento automático concluído');
+    } else if (alarm.name === 'verificarExclusoes') {
+      console.log('[EmailZen] Alarme disparado: verificando exclusões...');
+      await verificarExclusoes();
+      console.log('[EmailZen] Verificação de exclusões concluída');
+    } else {
+      console.log(`[EmailZen] Alarme desconhecido disparado: ${alarm.name}`);
+    }
+  } catch (error) {
+    console.error(`[EmailZen] Erro ao processar alarme ${alarm.name}:`, error);
   }
 });
 
@@ -415,42 +448,128 @@ async function buscarContadorEmails(labelNome) {
  * Analisa remetentes frequentes e retorna sugestões
  * @returns {Promise<Array>} Lista de sugestões de regras
  */
-async function analisarSugestoes() {
+/**
+ * Analisa sugestões com callback de progresso
+ */
+async function analisarSugestoesComProgresso(callbackProgresso = null) {
   try {
     console.log('[EmailZen] Iniciando análise inteligente...');
     
     // Verifica regras existentes para não sugerir duplicatas
     const regrasExistentes = await obterRegras();
     const dominiosJaRegrados = new Set();
+    
     regrasExistentes.forEach(regra => {
       if (regra.condicoes?.remetente) {
         regra.condicoes.remetente.forEach(rem => {
-          const dominio = rem.startsWith('@') ? rem.substring(1) : rem.split('@')[1];
-          if (dominio) dominiosJaRegrados.add(dominio.toLowerCase());
+          // Extrai domínio da regra (pode ser @dominio ou email@dominio)
+          let dominio = '';
+          if (rem.startsWith('@')) {
+            dominio = rem.substring(1).toLowerCase().trim();
+          } else if (rem.includes('@')) {
+            // Se é um email completo, extrai o domínio
+            const partes = rem.split('@');
+            if (partes.length > 1) {
+              dominio = partes[1].toLowerCase().trim();
+            }
+          } else {
+            dominio = rem.toLowerCase().trim();
+          }
+          
+          if (dominio) {
+            // Adiciona tanto o domínio completo quanto o raiz
+            dominiosJaRegrados.add(dominio);
+            
+            // Usa a função extrairDominio para obter o domínio raiz
+            // Como não temos acesso direto à função extrairDominioRaiz,
+            // vamos extrair manualmente (últimas 2 partes)
+            const partes = dominio.split('.');
+            if (partes.length >= 2) {
+              // Para TLDs compostos, pode ter 3 partes
+              const tldsCompostos = ['co.uk', 'com.br', 'com.au', 'com.mx', 'com.ar', 'com.co'];
+              let dominioRaiz = '';
+              
+              if (partes.length >= 3) {
+                const ultimasDuas = partes.slice(-2).join('.');
+                if (tldsCompostos.includes(ultimasDuas)) {
+                  // TLD composto, pega últimas 3 partes
+                  dominioRaiz = partes.slice(-3).join('.');
+                } else {
+                  // TLD simples, pega últimas 2 partes
+                  dominioRaiz = partes.slice(-2).join('.');
+                }
+              } else {
+                dominioRaiz = dominio;
+              }
+              
+              if (dominioRaiz && dominioRaiz !== dominio) {
+                dominiosJaRegrados.add(dominioRaiz);
+              }
+            }
+          }
         });
       }
     });
     
-    // Analisa remetentes frequentes (limite mínimo: 2 emails)
-    const remetentesFrequentes = await analisarRemetentesFrequentes(2, 10);
+    console.log(`[EmailZen] ${dominiosJaRegrados.size} domínio(s) já possuem regras:`, Array.from(dominiosJaRegrados).slice(0, 10));
     
-    // Filtra remetentes que já têm regras
+    // Analisa remetentes frequentes (limite mínimo: 2 emails, máximo: 20 resultados)
+    // Aumentado maxResultados para 20 para mostrar mais sugestões
+    const remetentesFrequentes = await analisarRemetentesFrequentes(2, 20, callbackProgresso);
+    
+    // Filtra remetentes que já têm regras (verifica domínio raiz)
     const sugestoes = remetentesFrequentes
-      .filter(r => !dominiosJaRegrados.has(r.dominio))
+      .filter(r => {
+        // Verifica se o domínio raiz ou completo já está nas regras
+        const dominioRaiz = r.dominio;
+        const dominioCompleto = r.dominioCompleto;
+        
+        // Verifica domínio raiz
+        if (dominiosJaRegrados.has(dominioRaiz)) {
+          return false;
+        }
+        
+        // Verifica domínio completo (se diferente do raiz)
+        if (dominioCompleto && dominioCompleto !== dominioRaiz && dominiosJaRegrados.has(dominioCompleto)) {
+          return false;
+        }
+        
+        // Verifica se algum subdomínio já está nas regras
+        if (r.subdominios && r.subdominios.length > 0) {
+          for (const subdominio of r.subdominios) {
+            if (dominiosJaRegrados.has(subdominio)) {
+              return false;
+            }
+          }
+        }
+        
+        return true;
+      })
       .map(r => ({
-        dominio: r.dominio,
+        dominio: r.dominio, // Domínio raiz (agrupado)
+        dominioCompleto: r.dominioCompleto, // Primeiro domínio completo encontrado
         quantidade: r.quantidade,
         porcentagem: r.porcentagem,
+        temSubdominios: r.temSubdominios || false,
+        subdominios: r.subdominios || [],
+        exemploSubdominios: r.exemploSubdominios || '',
         sugestaoLabel: r.dominio.split('.')[0] || r.dominio
       }));
     
-    console.log(`[EmailZen] ${sugestoes.length} sugestões geradas`);
+    console.log(`[EmailZen] ${sugestoes.length} sugestões geradas (de ${remetentesFrequentes.length} remetentes frequentes)`);
     
     return sugestoes;
   } catch (error) {
     console.error('[EmailZen] Erro ao analisar sugestões:', error);
     throw error;
   }
+}
+
+/**
+ * Analisa sugestões (versão sem progresso para compatibilidade)
+ */
+async function analisarSugestoes() {
+  return await analisarSugestoesComProgresso(null);
 }
 
 /**
@@ -551,18 +670,67 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.acao === 'analisarSugestoes') {
     // Analisa em background - não depende do popup estar aberto
     (async () => {
+      let analiseAbortada = false;
+      
+      // Listener para verificar se análise foi abortada
+      const abortListener = (msg, sender, sendResponse) => {
+        if (msg.acao === 'abortarAnalise') {
+          analiseAbortada = true;
+          sendResponse({ sucesso: true });
+          return true;
+        }
+      };
+      chrome.runtime.onMessage.addListener(abortListener);
+      
+      // Callback de progresso
+      const callbackProgresso = (processados, total, etapa) => {
+        if (analiseAbortada) {
+          return true; // Indica abortar
+        }
+        
+        // Envia progresso para options page se estiver aberta
+        try {
+          chrome.runtime.sendMessage({
+            acao: 'analiseProgresso',
+            processados,
+            total,
+            etapa
+          }).catch(() => {
+            // Options page pode não estar aberta, ignora erro
+          });
+        } catch (e) {
+          // Ignora erros de envio
+        }
+        
+        return analiseAbortada;
+      };
+      
       try {
-        const sugestoes = await analisarSugestoes();
+        // Modifica analisarSugestoes para aceitar callback
+        const sugestoes = await analisarSugestoesComProgresso(callbackProgresso);
+        
+        chrome.runtime.onMessage.removeListener(abortListener);
+        
         try {
           sendResponse({ sucesso: true, sugestoes });
         } catch (sendError) {
           // Popup pode ter fechado, mas análise continua e salva resultados
           console.log('[EmailZen] Análise concluída (popup pode ter fechado)');
-          // Salva sugestões mesmo se popup fechou
-          const { salvarSugestoes } = await import('../utils/storage.js');
+          // Salva sugestões mesmo se popup fechou (já importado no topo)
           await salvarSugestoes(sugestoes);
         }
       } catch (error) {
+        chrome.runtime.onMessage.removeListener(abortListener);
+        
+        if (error.message && error.message.includes('abortada')) {
+          try {
+            sendResponse({ sucesso: false, abortada: true, sugestoes: [] });
+          } catch (sendError) {
+            console.log('[EmailZen] Análise abortada (popup pode ter fechado)');
+          }
+          return;
+        }
+        
         console.error('[EmailZen] Erro na análise:', error);
         try {
           sendResponse({ sucesso: false, erro: error.message, sugestoes: [] });

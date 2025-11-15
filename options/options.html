@@ -28,6 +28,38 @@
     <div class="content">
       <div class="section">
         <div class="section-header">
+          <h2>💡 Busca Inteligente</h2>
+          <div class="header-actions">
+            <button id="btn-analisar-inbox" class="btn-secondary">
+              <span class="btn-icon">🔍</span> Analisar Inbox
+            </button>
+            <button id="btn-abortar-analise" class="btn-secondary hidden" style="background: #e74c3c;">
+              <span class="btn-icon">⏹️</span> Abortar Análise
+            </button>
+          </div>
+        </div>
+        <div class="analise-container">
+          <div id="analise-status" class="analise-status hidden">
+            <div class="analise-progresso">
+              <div class="analise-progresso-bar" id="analise-progresso-bar"></div>
+            </div>
+            <div class="analise-info">
+              <span id="analise-texto">Analisando inbox...</span>
+              <span id="analise-contador">0/0 emails</span>
+            </div>
+          </div>
+          <div id="analise-resultados" class="analise-resultados hidden">
+            <h3>Sugestões Encontradas</h3>
+            <div id="analise-lista" class="analise-lista"></div>
+          </div>
+          <div id="analise-vazia" class="analise-vazia hidden">
+            <p>Nenhuma sugestão encontrada. Clique em "Analisar Inbox" para começar.</p>
+          </div>
+        </div>
+      </div>
+      
+      <div class="section">
+        <div class="section-header">
           <h2>Regras de Filtro</h2>
           <div class="header-actions">
             <button id="btn-executar-regras" class="btn-secondary">

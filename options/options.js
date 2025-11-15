@@ -2,7 +2,7 @@
  * Options Page Script - Gerenciamento de regras
  */
 
-import { obterRegras, salvarRegra, removerRegra, toggleRegra, obterEstatisticas, salvarConfigVerificacao, obterConfigVerificacao } from '../utils/storage.js';
+import { obterRegras, salvarRegra, removerRegra, toggleRegra, obterEstatisticas, salvarConfigVerificacao, obterConfigVerificacao, salvarSugestoes, obterSugestoes } from '../utils/storage.js';
 
 let regraEditando = null;
 let regrasSelecionadas = new Set();
@@ -23,6 +23,7 @@ async function inicializar() {
   await carregarRegras();
   await carregarEstatisticas();
   await carregarConfigVerificacao();
+  await carregarSugestoesOpcoes();
   
   // Event listeners
   document.getElementById('btn-executar-regras').addEventListener('click', () => {
@@ -84,6 +85,12 @@ async function inicializar() {
   
   // Botão salvar configurações de verificação
   document.getElementById('btn-salvar-config')?.addEventListener('click', salvarConfigVerificacaoForm);
+  
+  // Botão analisar inbox
+  document.getElementById('btn-analisar-inbox')?.addEventListener('click', iniciarAnaliseInteligente);
+  
+  // Botão abortar análise
+  document.getElementById('btn-abortar-analise')?.addEventListener('click', abortarAnalise);
 }
 
 /**
@@ -916,6 +923,235 @@ async function salvarConfigVerificacaoForm() {
   } finally {
     btnSalvar.disabled = false;
     btnSalvar.innerHTML = '<span class="btn-icon">💾</span> Salvar Configurações';
+  }
+}
+
+// Variáveis para controle de análise
+let analiseEmAndamento = false;
+let analiseAbortada = false;
+
+/**
+ * Inicia análise inteligente de remetentes frequentes
+ */
+async function iniciarAnaliseInteligente() {
+  if (analiseEmAndamento) {
+    alert('Análise já está em andamento. Aguarde ou clique em "Abortar Análise".');
+    return;
+  }
+  
+  const btnAnalisar = document.getElementById('btn-analisar-inbox');
+  const btnAbortar = document.getElementById('btn-abortar-analise');
+  const statusDiv = document.getElementById('analise-status');
+  const resultadosDiv = document.getElementById('analise-resultados');
+  const vaziaDiv = document.getElementById('analise-vazia');
+  const progressoBar = document.getElementById('analise-progresso-bar');
+  const textoStatus = document.getElementById('analise-texto');
+  const contadorStatus = document.getElementById('analise-contador');
+  
+  // Inicializa estado
+  analiseEmAndamento = true;
+  analiseAbortada = false;
+  btnAnalisar.disabled = true;
+  btnAnalisar.innerHTML = '<span class="btn-icon">⏳</span> Analisando...';
+  btnAbortar.classList.remove('hidden');
+  statusDiv.classList.remove('hidden');
+  resultadosDiv.classList.add('hidden');
+  vaziaDiv.classList.add('hidden');
+  progressoBar.style.width = '0%';
+  textoStatus.textContent = 'Iniciando análise...';
+  contadorStatus.textContent = '0/0 emails';
+  
+  try {
+    // Verifica se o service worker está ativo
+    const swAtivo = await verificarServiceWorker();
+    if (!swAtivo) {
+      throw new Error('Service worker não está ativo. Recarregue a extensão.');
+    }
+    
+    // Cria um listener para atualizar progresso
+    const progressListener = (request, sender, sendResponse) => {
+      if (request.acao === 'analiseProgresso') {
+        if (analiseAbortada) {
+          // Envia mensagem para abortar
+          chrome.runtime.sendMessage({ acao: 'abortarAnalise' }).catch(() => {});
+          sendResponse({ abortar: true });
+          return true;
+        }
+        
+        const { processados, total, etapa } = request;
+        const porcentagem = total > 0 ? Math.round((processados / total) * 100) : 0;
+        
+        progressoBar.style.width = `${porcentagem}%`;
+        textoStatus.textContent = etapa || 'Analisando inbox...';
+        contadorStatus.textContent = `${processados}/${total} emails`;
+        
+        sendResponse({ sucesso: true });
+        return true;
+      }
+    };
+    
+    // Adiciona listener temporário
+    chrome.runtime.onMessage.addListener(progressListener);
+    
+    // Envia mensagem para iniciar análise
+    const response = await enviarMensagemComRetry({
+      acao: 'analisarSugestoes'
+    });
+    
+    // Remove listener
+    chrome.runtime.onMessage.removeListener(progressListener);
+    
+    if (analiseAbortada) {
+      textoStatus.textContent = 'Análise abortada pelo usuário';
+      progressoBar.style.width = '0%';
+      return;
+    }
+    
+    if (response && response.sucesso && response.sugestoes && response.sugestoes.length > 0) {
+      // Salva sugestões
+      await salvarSugestoes(response.sugestoes);
+      
+      // Exibe resultados
+      exibirSugestoes(response.sugestoes);
+      statusDiv.classList.add('hidden');
+      resultadosDiv.classList.remove('hidden');
+      progressoBar.style.width = '100%';
+      textoStatus.textContent = 'Análise concluída!';
+    } else {
+      statusDiv.classList.add('hidden');
+      vaziaDiv.classList.remove('hidden');
+      textoStatus.textContent = 'Nenhuma sugestão encontrada';
+    }
+    
+  } catch (error) {
+    console.error('Erro na análise:', error);
+    statusDiv.classList.add('hidden');
+    alert('Erro ao analisar inbox: ' + (error.message || 'Erro desconhecido'));
+  } finally {
+    analiseEmAndamento = false;
+    btnAnalisar.disabled = false;
+    btnAnalisar.innerHTML = '<span class="btn-icon">🔍</span> Analisar Inbox';
+    btnAbortar.classList.add('hidden');
+    progressoBar.style.width = '0%';
+  }
+}
+
+/**
+ * Aborta análise em andamento
+ */
+function abortarAnalise() {
+  if (!analiseEmAndamento) {
+    return;
+  }
+  
+  analiseAbortada = true;
+  const btnAbortar = document.getElementById('btn-abortar-analise');
+  const textoStatus = document.getElementById('analise-texto');
+  
+  btnAbortar.disabled = true;
+  btnAbortar.innerHTML = '<span class="btn-icon">⏳</span> Abortando...';
+  textoStatus.textContent = 'Abortando análise...';
+  
+  // A análise será abortada no próximo check de progresso
+  setTimeout(() => {
+    analiseEmAndamento = false;
+    analiseAbortada = false;
+    btnAbortar.classList.add('hidden');
+    document.getElementById('analise-status').classList.add('hidden');
+    document.getElementById('btn-analisar-inbox').disabled = false;
+    document.getElementById('btn-analisar-inbox').innerHTML = '<span class="btn-icon">🔍</span> Analisar Inbox';
+  }, 1000);
+}
+
+/**
+ * Exibe sugestões encontradas na interface
+ */
+function exibirSugestoes(sugestoes) {
+  const listaDiv = document.getElementById('analise-lista');
+  listaDiv.innerHTML = '';
+  
+  sugestoes.forEach(sugestao => {
+    const card = document.createElement('div');
+    card.className = 'sugestao-card-opcoes';
+    card.setAttribute('data-dominio', sugestao.dominio);
+    
+    const infoSubdominios = sugestao.temSubdominios && sugestao.exemploSubdominios
+      ? `<span class="sugestao-subdominios-opcoes" title="Inclui subdomínios: ${sugestao.subdominios.join(', ')}">${sugestao.exemploSubdominios}</span>`
+      : '';
+    
+    card.innerHTML = `
+      <div class="sugestao-info-opcoes">
+        <div>
+          <strong class="sugestao-dominio-opcoes">${sugestao.dominio}</strong>
+          ${infoSubdominios}
+        </div>
+        <span class="sugestao-stats-opcoes">${sugestao.quantidade} emails (${sugestao.porcentagem}%)</span>
+      </div>
+      <button class="btn-sugestao-opcoes" data-dominio="${sugestao.dominio}">
+        Criar Regra
+      </button>
+    `;
+    
+    const btnCriar = card.querySelector('.btn-sugestao-opcoes');
+    btnCriar.addEventListener('click', async () => {
+      await criarRegraDaSugestaoOpcoes(sugestao);
+    });
+    
+    listaDiv.appendChild(card);
+  });
+}
+
+/**
+ * Cria regra a partir de uma sugestão (na página de opções)
+ */
+async function criarRegraDaSugestaoOpcoes(sugestao) {
+  try {
+    const response = await enviarMensagemComRetry({
+      acao: 'criarRegraAutomatica',
+      sugestao: sugestao,
+      opcoes: {
+        marcarLido: true,
+        arquivar: false
+      }
+    });
+    
+    if (response && response.sucesso) {
+      // Remove a sugestão da lista
+      const sugestoesAtuais = await obterSugestoes();
+      const sugestoesAtualizadas = sugestoesAtuais.filter(s => s.dominio !== sugestao.dominio);
+      await salvarSugestoes(sugestoesAtualizadas);
+      
+      // Atualiza interface
+      exibirSugestoes(sugestoesAtualizadas);
+      
+      // Recarrega regras para mostrar a nova
+      await carregarRegras();
+      await carregarEstatisticas();
+      
+      alert('Regra criada com sucesso!');
+    } else {
+      alert('Erro ao criar regra: ' + (response?.erro || 'Erro desconhecido'));
+    }
+  } catch (error) {
+    console.error('Erro ao criar regra:', error);
+    alert('Erro ao criar regra: ' + error.message);
+  }
+}
+
+/**
+ * Carrega sugestões salvas ao inicializar
+ */
+async function carregarSugestoesOpcoes() {
+  try {
+    const sugestoes = await obterSugestoes();
+    if (sugestoes && sugestoes.length > 0) {
+      exibirSugestoes(sugestoes);
+      document.getElementById('analise-resultados').classList.remove('hidden');
+    } else {
+      document.getElementById('analise-vazia').classList.remove('hidden');
+    }
+  } catch (error) {
+    console.error('Erro ao carregar sugestões:', error);
   }
 }
 
